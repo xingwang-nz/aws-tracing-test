@@ -1,0 +1,91 @@
+{
+  "event": {
+    "version": "0",
+    "id": "e0efe316-4742-eb97-5b50-45179f403e8c",
+    "detail-type": "fantail_SportUpsertEvent",
+    "source": "fantail",
+    "account": "792808863349",
+    "time": "2025-10-04T05:33:57Z",
+    "region": "ap-southeast-2",
+    "resources": [],
+    "detail": {
+      "event": {
+        "version": "0",
+        "id": "5492fe5c-ed33-9aa5-093d-32187b8d096a",
+        "detail-type": "Fantail API Request Event",
+        "source": "bff.contents-nest.api",
+        "account": "792808863349",
+        "time": "2025-09-22T02:10:41Z",
+        "region": "ap-southeast-2",
+        "resources": [],
+        "detail": {
+          "bucket": "fantail-pedro-viz-media",
+          "videoKey": "SP6185_20250817_045830.mxf",
+          "jsonKey": "SP6185_20250817_045830.json",
+          "transfer_id": "11997712",
+          "titleId": "10744815",
+          "segment_count": 1,
+          "segment_list": [
+            {
+              "dur_frame": 17972,
+              "in_frame": 0
+            }
+          ],
+          "cuepoints": [
+            {
+              "type": "ad",
+              "point": "PT11M58.880S"
+            }
+          ],
+          "certificate": "",
+          "assetType": "Acquired Programme",
+          "contentCategory": "Sport",
+          "airableDuration": "PT11M58.880S",
+          "nca_misc_list": [],
+          "target_filename_Duration": "00:11:58:22",
+          "target_filename": "SP6185_20250817_045830.mxf",
+          "identifier": "SP1293",
+          "ibmsTitle": {
+            "rights": [
+              {
+                "name": "Free to Air",
+                "dimensions": [
+                  {
+                    "name": "Platforms",
+                    "nodes": ["Free to Air TV", "Free TV"]
+                  }
+                ]
+              },
+              {
+                "name": "AVOD",
+                "dimensions": [
+                  {
+                    "name": "Platforms",
+                    "nodes": ["TVNZ On Demand"]
+                  }
+                ]
+              }
+            ],
+            "id": 10744815,
+            "type": "EPISODE",
+            "programmeName": "TBA V TBA",
+            "episodeNumber": 128,
+            "genre": "Basketball",
+            "dealIds": ["1046404", "1046404"],
+            "seriesIds": ["1036179", "1036179"],
+            "seriesNames": ["FIBA", "FIBA"],
+            "phase": "Semi Finals - Asia Cup 2025",
+            "subtext": null,
+            "tags": "Asia Cup 2025",
+            "videoType": "Highlights",
+            "mediaItems": [],
+            "synopsis": "",
+            "schedules": []
+          }
+        }
+      }
+    }
+  },
+  "id": "e0efe316-4742-eb97-5b50-45179f403e8c-qp-from-ft-sports-01K6PVY4G1X4ZEDQX5K7T7ZPPG",
+  "target": "ip-d-pri-qp-from-ft-sports-lt-v1-qp-from-ft-sports-sri"
+}

@@ -1,0 +1,38 @@
+{
+  "version": "0",
+  "id": "ad57e40f-6d73-f51c-c028-492046cbd212",
+  "detail-type": "API Gateway Event",
+  "source": "tracing-test",
+  "account": "392804380399",
+  "time": "2025-10-05T01:26:20Z",
+  "region": "ap-southeast-2",
+  "resources": [],
+  "detail": {
+    "traceId": "68e1c93be2e2475f55bbf557a1f67710",
+    "timestamp": "2025-10-05T01:26:20.124Z",
+    "source": "api-gateway",
+    "requestData": {
+      "method": "POST",
+      "path": "/api/test-tracing",
+      "body": {
+        "firstName": "xing"
+      },
+      "requestId": "7eb821b1-e536-4aa6-a19b-0ec922585be2",
+      "headers": null
+    },
+    "metadata": {
+      "functionName": "tracing-test-lambda",
+      "requestId": "7eb821b1-e536-4aa6-a19b-0ec922585be2",
+      "xrayEnabled": true,
+      "traceSource": "x-ray-enabled",
+      "xrayInfo": {
+        "hasSegment": true,
+        "hasEnvVar": true,
+        "segmentId": "175655ea53597217"
+      },
+      "sentAt": "2025-10-05T01:26:20.125Z",
+      "eventBus": "tracing-test"
+    },
+    "traceHeader": "Root=1-68e1c93b-e2e2475f55bbf557a1f67710;Parent=175655ea53597217;Sampled=1;Lineage=1:0b0b9ccc:0"
+  }
+}

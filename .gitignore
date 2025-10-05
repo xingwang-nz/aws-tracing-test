@@ -9,3 +9,4 @@ cdk.out
 config.json
 .vscode
 **/.DS_Store
+tmp/

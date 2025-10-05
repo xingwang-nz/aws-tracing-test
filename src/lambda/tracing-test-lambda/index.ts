@@ -3,8 +3,10 @@ import type {
   APIGatewayProxyHandler,
   APIGatewayProxyResult,
 } from "aws-lambda";
-import { tracedApiGatewayHandler } from "../util/traced-api-gateway-handler";
-import { logger } from "../util/logger-demo";
+import { tracedApiGatewayHandler } from "../../util/traced-api-gateway-handler";
+import { logger } from "../../util/logger-demo";
+import { TraceId, TracingContext } from "../../util/tracing-utils";
+import { TracingEventBridge } from "../../util/eventbridge-utils";
 
 type ParsedBody = Record<string, unknown>;
 
@@ -37,9 +39,45 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
 
     try {
       const processingStart = Date.now();
-      const processingDuration = Date.now() - processingStart;
 
       const requestBody = parseRequestBody(event.body ?? null);
+
+      // Send event to EventBridge with trace propagation
+      const eventBusName = process.env.EVENT_BUS_NAME;
+      if (eventBusName) {
+        const eventBridge = new TracingEventBridge(eventBusName);
+
+        // TracingContext.getTraceId() automatically handles trace ID generation
+        console.log("Sending EventBridge event using TracingContext:", {
+          tracingContextId: TracingContext.getTraceId(),
+          handlerTracingId: tracingId,
+          xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
+        });
+
+        // await eventBridge.sendApiGatewayEvent({
+        //   method: event.httpMethod,
+        //   path: event.path,
+        //   body: requestBody,
+        //   userAgent: getUserAgent(event),
+        //   requestId: event.requestContext.requestId,
+        //   headers: event.headers,
+        // });
+
+        await eventBridge.sendApiGatewayEvent(requestBody);
+
+        logger.info({
+          message: "Event sent to EventBridge",
+          data: {
+            eventBusName,
+            tracingContextId: TracingContext.getTraceId(),
+            handlerTracingId: tracingId,
+          },
+        });
+      } else {
+        logger.warn({ message: "EVENT_BUS_NAME not configured" });
+      }
+
+      const processingDuration = Date.now() - processingStart;
 
       const response: APIGatewayProxyResult = {
         statusCode: 200,
@@ -69,6 +107,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
             tracing: {
               enabled: true,
               traceId: tracingId,
+              eventSent: !!eventBusName,
             },
           },
           null,
