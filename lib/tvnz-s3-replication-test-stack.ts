@@ -1,7 +1,14 @@
 import * as cdk from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
+import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import { Construct } from "constructs";
+import { createBasicLambda } from "./lambda-utils";
+import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
+import * as path from "path";
+import { S3Service } from "../src/common/aws/services/s3-service";
+import { AwsS3 } from "../src/common/aws/config-enum-declarations/aws-s3";
 
 export interface TvnzS3ReplicationTestStackProps extends cdk.StackProps {
   /**
@@ -34,6 +41,8 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
   public readonly sourceBucket: s3.Bucket;
   public readonly replicationRole: iam.Role;
   public readonly targetBucketName: string;
+  public replicationLogGroup: logs.LogGroup;
+  public replicationMonitorFunction: NodejsFunction;
 
   constructor(
     scope: Construct,
@@ -45,7 +54,6 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
     const {
       sourceBucket: sourceBucketConfig,
       targetBucket: targetBucketConfig,
-      replication: replicationConfig = {},
     } = props;
 
     // Validate source bucket name contains 'test'
@@ -55,12 +63,6 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
 
     // Store target bucket name for reference
     this.targetBucketName = targetBucketConfig.bucketName;
-
-    // Always treat as cross-account (even if same account)
-    const isCrossAccount = true;
-
-    // Determine if this is cross-region replication
-    const isCrossRegion = targetBucketConfig.region !== this.region;
 
     // Create source S3 bucket (with 'test' in name) using SSE-S3 encryption
     this.sourceBucket = new s3.Bucket(this, "SourceBucket", {
@@ -73,25 +75,96 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
       autoDeleteObjects: true, // Use false for production
     });
 
-    // Create IAM role for S3 replication (SSE-S3 encryption)
-    this.replicationRole = this.createReplicationRole(
+    const replicationRole = this.createReplicationRole(
       targetBucketConfig,
-      isCrossAccount,
+      false,
     );
 
-    // Target bucket is assumed to exist - no creation needed
-    // We'll reference it by name in replication configuration
+    // Configure S3 replication with RTC and metrics enabled
+    const replicationConfig: s3.CfnBucket.ReplicationConfigurationProperty = {
+      role: replicationRole.roleArn,
+      rules: [
+        {
+          id: "ReplicateToTvBeat",
+          status: "Enabled",
+          priority: 1,
+          filter: {
+            prefix: sourceBucketConfig.prefix,
+          },
+          destination: {
+            bucket: `arn:aws:s3:::${this.targetBucketName}`,
+            accessControlTranslation: {
+              owner: "Destination",
+            },
+            account: targetBucketConfig.accountId,
+            replicationTime: {
+              status: "Enabled",
+              time: {
+                minutes: 15, // Objects should replicate within 15 minutes
+              },
+            },
+            // Enable metrics for replication monitoring with event threshold
+            metrics: {
+              status: "Enabled",
+              // IMPORTANT: eventThreshold must be provided and match RTC threshold if RTC is enabled
+              eventThreshold: {
+                minutes: 15,
+              },
+            },
+          },
+          deleteMarkerReplication: {
+            status: "Enabled",
+          },
+        },
+      ],
+    };
 
-    // Configure replication rules
-    this.configureReplication(
-      sourceBucketConfig,
-      targetBucketConfig,
-      replicationConfig,
-      isCrossRegion,
-    );
+    // Add replication configuration to the bucket
+    const cfnBucket = this.sourceBucket.node.defaultChild as s3.CfnBucket;
+    cfnBucket.replicationConfiguration = replicationConfig;
 
-    // Create CloudFormation outputs
-    this.createOutputs();
+    // Create replication failure monitoring
+    this.createReplicationFailureMonitoring();
+
+    // this.replicationLogGroup = new logs.LogGroup(
+    //   this,
+    //   "ReplicationMonitorLogGroup",
+    //   {
+    //     logGroupName: `/aws/s3/replication-monitor/${this.sourceBucket.bucketName}-replication-monitor`,
+    //     retention: logs.RetentionDays.TWO_WEEKS,
+    //     removalPolicy: cdk.RemovalPolicy.DESTROY,
+    //   },
+    // );
+
+    // this.replicationMonitorFunction = createBasicLambda(this, {
+    //   id: "ReplicationMonitorFunction",
+    //   functionName: "s3-replication-monitor",
+    //   entryPath: path.join(
+    //     __dirname,
+    //     "../src/lambda/s3-replication-monitor/index.ts",
+    //   ),
+    //   timeout: cdk.Duration.seconds(60),
+    //   additionalEnvironment: {
+    //     LOG_GROUP_NAME: this.replicationLogGroup.logGroupName,
+    //   },
+    // });
+
+    // Use S3Service.cdk.configureReplication to set up replication and role
+    // const { replicationRole } = S3Service.cdk.configureReplication({
+    //   stack: this,
+    //   sourceBucket: this.sourceBucket,
+    //   sourceBucketResource: AwsS3.TVBEAT_FILES,
+    //   monitorLambda: this.replicationMonitorFunction,
+    //   replicationRules: [
+    //     {
+    //       id: "ReplicateToTvBeat",
+    //       destinationBucketArn: `arn:aws:s3:::${targetBucketConfig.bucketName}`,
+    //       destinationAccountId: targetBucketConfig.accountId,
+    //       prefix: targetBucketConfig.prefix,
+    //     },
+    //   ],
+    // });
+    // this.replicationRole = replicationRole;
   }
 
   private createReplicationRole(
@@ -100,7 +173,7 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
   ): iam.Role {
     const role = new iam.Role(this, "ReplicationRole", {
       assumedBy: new iam.ServicePrincipal("s3.amazonaws.com"),
-      description: "IAM role for S3 cross-region/cross-account replication",
+      description: "IAM role for S3 cross-account replication",
     });
 
     // Source bucket permissions
@@ -144,80 +217,79 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
           "s3:ReplicateObject",
           "s3:ReplicateDelete",
           "s3:ReplicateTags",
-          "s3:ObjectOwnerOverrideToBucketOwner",
         ],
         resources: [`${targetBucketArn}/*`],
+      }),
+    );
+
+    role.addToPolicy(
+      new iam.PolicyStatement({
+        sid: "MetricsPermissions",
+        effect: iam.Effect.ALLOW,
+        actions: ["cloudwatch:PutMetricData"],
+        resources: ["*"],
+        conditions: {
+          StringEquals: {
+            "cloudwatch:namespace": "AWS/S3",
+          },
+        },
       }),
     );
 
     return role;
   }
 
-  private configureReplication(
-    sourceBucketConfig: TvnzS3ReplicationTestStackProps["sourceBucket"],
-    targetBucketConfig: TvnzS3ReplicationTestStackProps["targetBucket"],
-    replicationConfig: TvnzS3ReplicationTestStackProps["replication"] = {},
-    isCrossRegion: boolean,
-  ): void {
-    const targetBucketArn = `arn:aws:s3:::${targetBucketConfig.bucketName}`;
+  private createReplicationFailureMonitoring(): void {
+    // Create CloudWatch Log Group for replication monitoring
+    this.replicationLogGroup = new logs.LogGroup(
+      this,
+      "ReplicationMonitorLogGroup",
+      {
+        logGroupName: `/aws/s3/replication-monitor/${this.sourceBucket.bucketName}`,
+        retention: logs.RetentionDays.TWO_WEEKS,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      },
+    );
 
-    // Build replication destination (using SSE-S3 for target)
-    const destination: s3.CfnBucket.ReplicationDestinationProperty = {
-      bucket: targetBucketArn,
-      // storageClass: "STANDARD_IA", // Can be configurable
-      // Target bucket uses SSE-S3 encryption (default)
-    };
-
-    // Add prefix to destination if specified
-    if (targetBucketConfig.prefix) {
-      (destination as any).prefix = targetBucketConfig.prefix;
-    }
-
-    // Build replication rule (simplified for compatibility)
-    const replicationRule: s3.CfnBucket.ReplicationRuleProperty = {
-      id: "ReplicationRule",
-      status: "Enabled",
-      prefix: sourceBucketConfig.prefix,
-      destination,
-    };
-
-    // Apply replication configuration to source bucket
-    const cfnSourceBucket = this.sourceBucket.node.defaultChild as s3.CfnBucket;
-    cfnSourceBucket.replicationConfiguration = {
-      role: this.replicationRole.roleArn,
-      rules: [replicationRule],
-    };
-  }
-
-  private createOutputs(): void {
-    new cdk.CfnOutput(this, "SourceBucketName", {
-      value: this.sourceBucket.bucketName,
-      description: "Source S3 bucket name",
-      exportName: `${this.stackName}-SourceBucketName`,
+    // Create Lambda function for replication failure monitoring using utility
+    this.replicationMonitorFunction = createBasicLambda(this, {
+      id: "ReplicationMonitorFunction",
+      functionName: "s3-replication-monitor",
+      entryPath: path.join(
+        __dirname,
+        "../src/lambda/s3-replication-monitor/index.ts",
+      ),
+      timeout: cdk.Duration.seconds(60),
+      additionalEnvironment: {
+        LOG_GROUP_NAME: this.replicationLogGroup.logGroupName,
+      },
     });
 
-    new cdk.CfnOutput(this, "SourceBucketArn", {
-      value: this.sourceBucket.bucketArn,
-      description: "Source S3 bucket ARN",
-      exportName: `${this.stackName}-SourceBucketArn`,
-    });
+    // Add S3 bucket notifications for replication events with meaningful construct names
+    // These events are triggered when replication fails or has issues
 
-    new cdk.CfnOutput(this, "TargetBucketName", {
-      value: this.targetBucketName,
-      description: "Target S3 bucket name (assumed to exist)",
-      exportName: `${this.stackName}-TargetBucketName`,
-    });
+    // Replication failure events - critical alerts
+    this.sourceBucket.addEventNotification(
+      s3.EventType.REPLICATION_OPERATION_FAILED_REPLICATION,
+      new s3n.LambdaDestination(this.replicationMonitorFunction),
+    );
 
-    new cdk.CfnOutput(this, "TargetBucketArn", {
-      value: `arn:aws:s3:::${this.targetBucketName}`,
-      description: "Target S3 bucket ARN (assumed to exist)",
-      exportName: `${this.stackName}-TargetBucketArn`,
-    });
+    // Replication threshold events - timing alerts
+    this.sourceBucket.addEventNotification(
+      s3.EventType.REPLICATION_OPERATION_MISSED_THRESHOLD,
+      new s3n.LambdaDestination(this.replicationMonitorFunction),
+    );
 
-    new cdk.CfnOutput(this, "ReplicationRoleArn", {
-      value: this.replicationRole.roleArn,
-      description: "S3 replication IAM role ARN",
-      exportName: `${this.stackName}-ReplicationRoleArn`,
-    });
+    // Replication recovery events - eventual success
+    this.sourceBucket.addEventNotification(
+      s3.EventType.REPLICATION_OPERATION_REPLICATED_AFTER_THRESHOLD,
+      new s3n.LambdaDestination(this.replicationMonitorFunction),
+    );
+
+    // Replication tracking events - monitoring gaps
+    this.sourceBucket.addEventNotification(
+      s3.EventType.REPLICATION_OPERATION_NOT_TRACKED,
+      new s3n.LambdaDestination(this.replicationMonitorFunction),
+    );
   }
 }
