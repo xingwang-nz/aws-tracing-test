@@ -10,50 +10,21 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Construct } from "constructs";
 import * as path from "path";
+import { createTracedLambda } from "./lambda-utils";
 
 export class TracingTestStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
-    // Reusable function to create Lambda with tracing
-    const createTracedLambda = (
-      id: string,
-      functionName: string,
-      entryPath: string,
-      additionalEnvironment?: Record<string, string>,
-    ): NodejsFunction => {
-      return new NodejsFunction(this, id, {
-        functionName,
-        runtime: lambda.Runtime.NODEJS_LATEST,
-        entry: entryPath,
-        handler: "handler",
-        timeout: cdk.Duration.seconds(30),
-        memorySize: 256,
-        tracing: lambda.Tracing.ACTIVE,
-        logRetention: logs.RetentionDays.ONE_WEEK,
-        environment: {
-          NODE_OPTIONS: "--enable-source-maps",
-          ...additionalEnvironment,
-        },
-        bundling: {
-          externalModules: [], // Remove aws-sdk from external modules since it's not available in Node.js 22 runtime
-          sourceMap: true,
-          target: "node22",
-          // Ensures esbuild >=0.22 bundles core Node dependencies instead of marking them external
-          // which avoids Runtime.ImportModuleError: Cannot find module 'module'.
-          esbuildArgs: {
-            "--packages": "bundle",
-          },
-        },
-      });
-    };
-
     // Lambda function with X-Ray tracing enabled
-    const tracingTestLambda = createTracedLambda(
-      "TracingTestLambda",
-      "tracing-test-lambda",
-      path.join(__dirname, "../src/lambda/tracing-test-lambda/index.ts"),
-    );
+    const tracingTestLambda = createTracedLambda(this, {
+      id: "TracingTestLambda",
+      functionName: "tracing-test-lambda",
+      entryPath: path.join(
+        __dirname,
+        "../src/lambda/tracing-test-lambda/index.ts",
+      ),
+    });
 
     // Custom EventBridge event bus with X-Ray tracing
     const tracingEventBus = new events.EventBus(this, "TracingEventBus", {
@@ -70,24 +41,24 @@ export class TracingTestStack extends cdk.Stack {
     );
 
     // Step Functions controller lambda
-    const sfControllerLambda = createTracedLambda(
-      "SfControllerLambda",
-      "tracing-test-sf-controller-lambda",
-      path.join(
+    const sfControllerLambda = createTracedLambda(this, {
+      id: "SfControllerLambda",
+      functionName: "tracing-test-sf-controller-lambda",
+      entryPath: path.join(
         __dirname,
         "../src/lambda/tracing-test-sf-controller-lambda/index.ts",
       ),
-    );
+    });
 
     // Business Lambda function
-    const businessLambda = createTracedLambda(
-      "BusinessLambda",
-      "tracing-test-lambda-business",
-      path.join(
+    const businessLambda = createTracedLambda(this, {
+      id: "BusinessLambda",
+      functionName: "tracing-test-lambda-business",
+      entryPath: path.join(
         __dirname,
         "../src/lambda/tracing-test-lambda-business/index.ts",
       ),
-    );
+    });
 
     // Business Step Functions state machine
     const businessProcessTask = new sfnTasks.LambdaInvoke(
