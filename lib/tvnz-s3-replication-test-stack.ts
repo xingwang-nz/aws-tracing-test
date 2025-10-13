@@ -35,6 +35,9 @@ export interface TvnzS3ReplicationTestStackProps extends cdk.StackProps {
   replication?: {
     // Basic replication configuration - using simplified schema for compatibility
   };
+
+  /** Optional: reuse an existing replication monitor lambda created in another stack */
+  monitorLambda?: NodejsFunction;
 }
 
 export class TvnzS3ReplicationTestStack extends cdk.Stack {
@@ -61,7 +64,6 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
       throw new Error('Source bucket name must contain "test" wording');
     }
 
-    // Store target bucket name for reference
     this.targetBucketName = targetBucketConfig.bucketName;
 
     // Create source S3 bucket (with 'test' in name) using SSE-S3 encryption
@@ -75,101 +77,103 @@ export class TvnzS3ReplicationTestStack extends cdk.Stack {
       autoDeleteObjects: true, // Use false for production
     });
 
-    const replicationRole = this.createReplicationRole(
-      targetBucketConfig,
-      false,
-    );
+    // Allow a monitor lambda to be passed in (so it can be created once and reused).
+    if (props.monitorLambda) {
+      this.replicationMonitorFunction = props.monitorLambda;
+    } else {
+      // create a local monitor lambda when none is provided
+      this.replicationLogGroup = new logs.LogGroup(
+        this,
+        "ReplicationMonitorLogGroup",
+        {
+          logGroupName: `/aws/s3/replication-monitor/${this.sourceBucket.bucketName}-replication-monitor`,
+          retention: logs.RetentionDays.TWO_WEEKS,
+          removalPolicy: cdk.RemovalPolicy.DESTROY,
+        },
+      );
 
-    // Configure S3 replication with RTC and metrics enabled
-    const replicationConfig: s3.CfnBucket.ReplicationConfigurationProperty = {
-      role: replicationRole.roleArn,
-      rules: [
+      this.replicationMonitorFunction = createBasicLambda(this, {
+        id: "ReplicationMonitorFunction",
+        functionName: "s3-replication-monitor",
+        entryPath: path.join(
+          __dirname,
+          "../src/lambda/s3-replication-monitor/index.ts",
+        ),
+        timeout: cdk.Duration.seconds(60),
+        additionalEnvironment: {
+          LOG_GROUP_NAME: this.replicationLogGroup.logGroupName,
+        },
+      });
+    }
+
+    S3Service.cdk.configureReplication({
+      stack: this,
+      sourceBucket: this.sourceBucket,
+      sourceBucketResource: AwsS3.TVBEAT_FILES,
+      monitorLambda: this.replicationMonitorFunction,
+      replicationRules: [
         {
           id: "ReplicateToTvBeat",
-          status: "Enabled",
+          destinationBucketArn: `arn:aws:s3:::${targetBucketConfig.bucketName}`,
+          destinationAccountId: targetBucketConfig.accountId,
+          prefix: sourceBucketConfig.prefix,
           priority: 1,
-          filter: {
-            prefix: sourceBucketConfig.prefix,
-          },
-          destination: {
-            bucket: `arn:aws:s3:::${this.targetBucketName}`,
-            accessControlTranslation: {
-              owner: "Destination",
-            },
-            account: targetBucketConfig.accountId,
-            replicationTime: {
-              status: "Enabled",
-              time: {
-                minutes: 15, // Objects should replicate within 15 minutes
-              },
-            },
-            // Enable metrics for replication monitoring with event threshold
-            metrics: {
-              status: "Enabled",
-              // IMPORTANT: eventThreshold must be provided and match RTC threshold if RTC is enabled
-              eventThreshold: {
-                minutes: 15,
-              },
-            },
-          },
-          deleteMarkerReplication: {
-            status: "Enabled",
-          },
         },
       ],
-    };
+    });
 
-    // Add replication configuration to the bucket
-    const cfnBucket = this.sourceBucket.node.defaultChild as s3.CfnBucket;
-    cfnBucket.replicationConfiguration = replicationConfig;
+    /////////////////////////////////////////////
+    // const replicationRole = this.createReplicationRole(targetBucketConfig);
 
-    // Create replication failure monitoring
-    this.createReplicationFailureMonitoring();
-
-    // this.replicationLogGroup = new logs.LogGroup(
-    //   this,
-    //   "ReplicationMonitorLogGroup",
-    //   {
-    //     logGroupName: `/aws/s3/replication-monitor/${this.sourceBucket.bucketName}-replication-monitor`,
-    //     retention: logs.RetentionDays.TWO_WEEKS,
-    //     removalPolicy: cdk.RemovalPolicy.DESTROY,
-    //   },
-    // );
-
-    // this.replicationMonitorFunction = createBasicLambda(this, {
-    //   id: "ReplicationMonitorFunction",
-    //   functionName: "s3-replication-monitor",
-    //   entryPath: path.join(
-    //     __dirname,
-    //     "../src/lambda/s3-replication-monitor/index.ts",
-    //   ),
-    //   timeout: cdk.Duration.seconds(60),
-    //   additionalEnvironment: {
-    //     LOG_GROUP_NAME: this.replicationLogGroup.logGroupName,
-    //   },
-    // });
-
-    // Use S3Service.cdk.configureReplication to set up replication and role
-    // const { replicationRole } = S3Service.cdk.configureReplication({
-    //   stack: this,
-    //   sourceBucket: this.sourceBucket,
-    //   sourceBucketResource: AwsS3.TVBEAT_FILES,
-    //   monitorLambda: this.replicationMonitorFunction,
-    //   replicationRules: [
+    // Configure S3 replication with RTC and metrics enabled
+    // const replicationConfig: s3.CfnBucket.ReplicationConfigurationProperty = {
+    //   role: replicationRole.roleArn,
+    //   rules: [
     //     {
     //       id: "ReplicateToTvBeat",
-    //       destinationBucketArn: `arn:aws:s3:::${targetBucketConfig.bucketName}`,
-    //       destinationAccountId: targetBucketConfig.accountId,
-    //       prefix: targetBucketConfig.prefix,
+    //       status: "Enabled",
+    //       priority: 1,
+    //       filter: {
+    //         prefix: sourceBucketConfig.prefix,
+    //       },
+    //       destination: {
+    //         bucket: `arn:aws:s3:::${this.targetBucketName}`,
+    //         accessControlTranslation: {
+    //           owner: "Destination",
+    //         },
+    //         account: targetBucketConfig.accountId,
+    //         replicationTime: {
+    //           status: "Enabled",
+    //           time: {
+    //             minutes: 15, // Objects should replicate within 15 minutes
+    //           },
+    //         },
+    //         // Enable metrics for replication monitoring with event threshold
+    //         metrics: {
+    //           status: "Enabled",
+    //           // IMPORTANT: eventThreshold must be provided and match RTC threshold if RTC is enabled
+    //           eventThreshold: {
+    //             minutes: 15,
+    //           },
+    //         },
+    //       },
+    //       deleteMarkerReplication: {
+    //         status: "Enabled",
+    //       },
     //     },
     //   ],
-    // });
-    // this.replicationRole = replicationRole;
+    // };
+
+    // Add replication configuration to the bucket
+    // const cfnBucket = this.sourceBucket.node.defaultChild as s3.CfnBucket;
+    // cfnBucket.replicationConfiguration = replicationConfig;
+
+    // Create replication failure monitoring
+    // this.createReplicationFailureMonitoring();
   }
 
   private createReplicationRole(
     targetBucketConfig: TvnzS3ReplicationTestStackProps["targetBucket"],
-    isCrossAccount: boolean,
   ): iam.Role {
     const role = new iam.Role(this, "ReplicationRole", {
       assumedBy: new iam.ServicePrincipal("s3.amazonaws.com"),

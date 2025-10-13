@@ -2,11 +2,9 @@ import * as s3 from "aws-cdk-lib/aws-s3";
 import { IBucket } from "aws-cdk-lib/aws-s3";
 import * as cdk from "aws-cdk-lib";
 import { IFunction } from "aws-cdk-lib/aws-lambda";
-import { Construct } from "constructs";
 import * as s3n from "aws-cdk-lib/aws-s3-notifications";
 import * as iam from "aws-cdk-lib/aws-iam";
 import { AwsS3 } from "../config-enum-declarations/aws-s3";
-import { TEST_REPLICATION_SOURCE_BUCKET_NAME } from "../../../../bin/app-config";
 
 type S3ReplicationRuleConfig = Pick<
   s3.CfnBucket.ReplicationRuleProperty,
@@ -14,8 +12,7 @@ type S3ReplicationRuleConfig = Pick<
 > & {
   destinationBucketArn: string;
   destinationAccountId?: string;
-  /** Destination bucket AWS region (optional) - used to determine same-region vs cross-region */
-  destinationRegion?: string;
+  priority: number;
   enableRTC?: boolean;
   rtcMinutes?: number;
   enableDeleteMarkerReplication?: boolean;
@@ -76,7 +73,7 @@ export const S3Service = {
 
       console.log(sourceBucketResource);
 
-      const replicationRoleName = `${TEST_REPLICATION_SOURCE_BUCKET_NAME}-replication-role`;
+      const replicationRoleName = `${stack.stackName}-replication-role`;
       const replicationRole = new iam.Role(stack, replicationRoleName, {
         assumedBy: new iam.ServicePrincipal("s3.amazonaws.com"),
         description: `IAM role for S3 replication (${replicationRoleName})`,
@@ -96,6 +93,8 @@ export const S3Service = {
           resources: [sourceBucket.bucketArn],
         }),
       );
+
+      // source object permissions
       replicationRole.addToPolicy(
         new iam.PolicyStatement({
           sid: "SourceObjectPermissions",
@@ -112,7 +111,7 @@ export const S3Service = {
         }),
       );
 
-      // Build replication rules and collect destination ARNs
+      // Build replication rules
       const destinationObjectArns: string[] = [];
       const replicationRules: s3.CfnBucket.ReplicationRuleProperty[] =
         rulesArray.map((replicationRule) => {
@@ -120,13 +119,12 @@ export const S3Service = {
             id,
             destinationBucketArn,
             destinationAccountId,
-            prefix,
+            prefix = "",
             enableRTC = true,
             rtcMinutes = 15,
             enableDeleteMarkerReplication = true,
-          } = replicationRule as S3ReplicationRuleConfig & {
-            destinationRegion?: string;
-          };
+            priority,
+          } = replicationRule as S3ReplicationRuleConfig;
 
           destinationObjectArns.push(`${destinationBucketArn}/*`);
 
@@ -159,6 +157,7 @@ export const S3Service = {
             id,
             status: "Enabled",
             filter: prefix ? { prefix } : undefined,
+            priority,
             destination,
             deleteMarkerReplication: {
               status: enableDeleteMarkerReplication ? "Enabled" : "Disabled",
