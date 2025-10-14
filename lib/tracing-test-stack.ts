@@ -1,14 +1,13 @@
 import * as cdk from "aws-cdk-lib";
-import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as events from "aws-cdk-lib/aws-events";
 import * as targets from "aws-cdk-lib/aws-events-targets";
 import * as stepfunctions from "aws-cdk-lib/aws-stepfunctions";
 import * as sfnTasks from "aws-cdk-lib/aws-stepfunctions-tasks";
-import * as iam from "aws-cdk-lib/aws-iam";
-import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Construct } from "constructs";
+import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
+import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "path";
 import { createTracedLambda } from "./lambda-utils";
 
@@ -154,6 +153,8 @@ export class TracingTestStack extends cdk.Stack {
       },
     });
 
+    // (moved HTTP API creation to after the REST API definition below)
+
     // Add Step Functions as target
     eventRule.addTarget(
       new targets.SfnStateMachine(tracingStepFunction, {
@@ -218,74 +219,55 @@ export class TracingTestStack extends cdk.Stack {
       ],
     });
 
-    // Output the API URL
-    new cdk.CfnOutput(this, "ApiUrl", {
-      value: api.url,
-      description: "API Gateway URL",
-      exportName: "TracingTestApiUrl",
+    // --- HTTP API (L2) proxy to the REST API ---
+    const httpApi = new httpApigateway.HttpApi(this, "TvnzTestEntryApi", {
+      apiName: "tvnz-test-entry-api-gateway",
     });
 
-    // Output the specific endpoint
-    new cdk.CfnOutput(this, "TestTracingEndpoint", {
-      value: `${api.url}api/test-tracing`,
-      description: "POST endpoint for testing tracing",
-      exportName: "TestTracingEndpoint",
+    new httpApigateway.HttpStage(this, "TvnzTestEntryStage", {
+      httpApi,
+      stageName: "prod",
+      autoDeploy: true,
     });
 
-    // Output the Step Functions ARN
-    new cdk.CfnOutput(this, "StepFunctionArn", {
-      value: tracingStepFunction.stateMachineArn,
-      description: "Step Functions ARN",
-      exportName: "TracingStepFunctionArn",
-    });
+    // --- ApiMapping with multi-level path for Http Api with domain---
 
-    // Output the EventBridge bus ARN
-    new cdk.CfnOutput(this, "EventBusArn", {
-      value: tracingEventBus.eventBusArn,
-      description: "Custom EventBridge bus ARN",
-      exportName: "TracingEventBusArn",
-    });
+    // Build the integration URI using the RestApi invoke URL (api.url token)
+    // and appending the desired path. The token is resolved at deploy time.
+    // const integrationUrl = cdk.Fn.join("", [api.url, "api/{proxy}"]);
 
-    // Output the Lambda function name
-    new cdk.CfnOutput(this, "LambdaFunctionName", {
-      value: tracingTestLambda.functionName,
-      description: "Lambda function name",
-      exportName: "TracingTestLambdaName",
-    });
+    // Route exposed on the HTTP API for clients
+    const routePath = "/quickplay/{proxy+}";
 
-    // Output the Step Functions controller lambda name
-    new cdk.CfnOutput(this, "SfControllerLambdaName", {
-      value: sfControllerLambda.functionName,
-      description: "Step Functions controller lambda name",
-      exportName: "SfControllerLambdaName",
-    });
+    // Build the integration URI using the RestApi invoke URL (api.url token)
+    // and appending the desired backend path. ApiGatewayV2 requires a full
+    // HTTP endpoint (including scheme), so use Fn.join to concatenate the
+    // RestApi URL token and the backend path.
+    const integrationUrl = cdk.Fn.join("", [api.url, "{proxy}"]);
 
-    // Output the Step Functions Log Group name
-    new cdk.CfnOutput(this, "StepFunctionLogGroupName", {
-      value: stepFunctionLogGroup.logGroupName,
-      description: "Step Functions CloudWatch Log Group name",
-      exportName: "StepFunctionLogGroupName",
-    });
+    // Rewrite incoming path /quickplay/{proxy+} -> /{stage}/api/{proxy}
+    const parameterMapping =
+      new httpApigateway.ParameterMapping().overwritePath(
+        httpApigateway.MappingValue.custom(
+          `/${api.deploymentStage.stageName}/api/${
+            httpApigateway.MappingValue.requestPathParam("proxy").value
+          }`,
+        ),
+      );
 
-    // Output the Business Step Functions ARN
-    new cdk.CfnOutput(this, "BusinessStepFunctionArn", {
-      value: businessStepFunction.stateMachineArn,
-      description: "Business Step Functions ARN",
-      exportName: "BusinessStepFunctionArn",
-    });
+    const urlIntegration = new integrations.HttpUrlIntegration(
+      "RestProxyIntegration",
+      integrationUrl,
+      {
+        method: httpApigateway.HttpMethod.ANY,
+        parameterMapping,
+      },
+    );
 
-    // Output the Business Lambda function name
-    new cdk.CfnOutput(this, "BusinessLambdaName", {
-      value: businessLambda.functionName,
-      description: "Business Lambda function name",
-      exportName: "BusinessLambdaName",
-    });
-
-    // Output the Business Step Functions Log Group name
-    new cdk.CfnOutput(this, "BusinessStepFunctionLogGroupName", {
-      value: businessStepFunctionLogGroup.logGroupName,
-      description: "Business Step Functions CloudWatch Log Group name",
-      exportName: "BusinessStepFunctionLogGroupName",
+    httpApi.addRoutes({
+      path: routePath,
+      methods: [httpApigateway.HttpMethod.ANY],
+      integration: urlIntegration,
     });
   }
 }

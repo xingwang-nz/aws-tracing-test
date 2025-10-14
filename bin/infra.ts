@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import "source-map-support/register";
 import * as cdk from "aws-cdk-lib";
-// import { TracingTestStack } from "../lib/tracing-test-stack";
+import { TracingTestStack } from "../lib/tracing-test-stack";
 
 import { TvnzS3ReplicationTestStack } from "../lib/tvnz-s3-replication-test-stack";
 import {
@@ -14,6 +14,8 @@ const app = new cdk.App();
 // Create a dedicated stack that owns the replication monitor Lambda so it
 // can be shared by multiple replication stacks.
 import { S3ReplicationMonitorStack } from "../lib/s3-replication-monitor-stack";
+
+new TracingTestStack(app, "tracing-test-stack");
 
 const monitorStack = new S3ReplicationMonitorStack(
   app,
