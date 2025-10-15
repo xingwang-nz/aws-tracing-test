@@ -31,10 +31,8 @@ const getUserAgent = (event: APIGatewayProxyEvent): string | undefined =>
   event.headers?.["User-Agent"] ?? event.headers?.["user-agent"];
 
 export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
-  async (
-    event: APIGatewayProxyEvent,
-    tracingId,
-  ): Promise<APIGatewayProxyResult> => {
+  async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
+    logger.info({ message: "Handler invoked" });
     logger.info({ message: "Event received:", data: event });
 
     try {
@@ -49,8 +47,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
 
         // TracingContext.getTraceId() automatically handles trace ID generation
         console.log("Sending EventBridge event using TracingContext:", {
-          tracingContextId: TracingContext.getTraceId(),
-          handlerTracingId: tracingId,
+          traceId: TracingContext.getTraceId(),
           xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
         });
 
@@ -70,7 +67,6 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           data: {
             eventBusName,
             tracingContextId: TracingContext.getTraceId(),
-            handlerTracingId: tracingId,
           },
         });
       } else {
@@ -106,12 +102,12 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
             },
             tracing: {
               enabled: true,
-              traceId: tracingId,
+              traceId: TracingContext.getTraceId(),
               eventSent: !!eventBusName,
             },
           },
           null,
-          2,
+          2
         ),
       };
 
@@ -134,5 +130,5 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         }),
       };
     }
-  },
+  }
 );
