@@ -6,6 +6,14 @@ type XRaySegmentPartial = {
   trace_id?: string | null;
 };
 
+export type TracedDetail = {
+  detail?: {
+    traceId?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+};
+
 export class TraceId {
   private static readonly TRACE_ID_HEADER = "x-trace-id";
   private static readonly AWS_TRACE_HEADER = "X-Amzn-Trace-Id";
@@ -45,7 +53,7 @@ export class TraceId {
     }
 
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment(),
+      this.getCurrentSegment()
     );
     if (awsTraceFromSegment) {
       console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
@@ -54,27 +62,26 @@ export class TraceId {
 
     const generatedTraceId = this.generate();
     console.log(
-      `No trace source found, generated new trace ID: ${generatedTraceId}`,
+      `No trace source found, generated new trace ID: ${generatedTraceId}`
     );
     return generatedTraceId;
   }
 
   /**
-   * Extract trace ID from any event details structure.
+   * Extract trace ID from any traced event structure.
    *
    * Priority:
    *   1. traceId (primary source)
    *   2. X-Ray context (env/segment)
    *   3. Generate new
    */
-  static fromTracedEventDetails(eventDetails: {
-    traceId?: string;
-    [key: string]: any;
-  }): string {
+  static fromTracedEvent(tracedEvent: TracedDetail): string {
     // First, check for explicit traceId
-    if (eventDetails.traceId) {
-      console.log(`Found trace ID in event details: ${eventDetails.traceId}`);
-      return eventDetails.traceId;
+    if (tracedEvent?.detail?.traceId) {
+      console.log(
+        `Found trace ID in event details: ${tracedEvent.detail.traceId}`
+      );
+      return tracedEvent.detail.traceId;
     }
 
     // Fallback to X-Ray environment
@@ -86,54 +93,39 @@ export class TraceId {
 
     // Fallback to X-Ray segment
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment(),
+      this.getCurrentSegment()
     );
     if (awsTraceFromSegment) {
       console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
       return awsTraceFromSegment;
     }
 
-    // Generate new trace ID as final fallback
+    // Final fallback to generated ID
     const generatedTraceId = this.generate();
     console.log(
-      `No trace source found in event details, generated new trace ID: ${generatedTraceId}`,
+      `No trace source found in event details, generated new trace ID: ${generatedTraceId}`
     );
     return generatedTraceId;
   }
 
   /**
-   * @deprecated Use fromTracedEventDetails instead
-   * Extract trace ID from EventBridge event structure.
+   * Create headers for downstream http request.
+   * If traceId is not provided, read from TracingContext, otherwise return an empty object.
    */
-  static fromEventBridgeEvent(event: {
-    detail?: {
-      traceId?: string;
-      [key: string]: any;
-    };
-    [key: string]: any;
-  }): string {
-    // Delegate to the new generic method
-    return this.fromTracedEventDetails(event.detail || {});
-  }
-
-  /**
-   * Create headers for downstream http request
-   */
-  static toHttpHeaders(traceId: string): Record<string, string> {
-    return {
-      [this.TRACE_ID_HEADER]: traceId,
-    };
+  static toHttpHeaders(traceId?: string): Record<string, string> {
+    const id = traceId ?? TracingContext.getTraceId();
+    return id ? { [this.TRACE_ID_HEADER]: id } : {};
   }
 
   private static getHeader(
     headers: Record<string, string | undefined>,
-    headerName: string,
+    headerName: string
   ): string | undefined {
     return headers[headerName] ?? headers[headerName.toLowerCase()];
   }
 
   private static extractRootTraceId(
-    traceValue?: string | null,
+    traceValue?: string | null
   ): string | undefined {
     if (!traceValue) {
       return undefined;
@@ -150,7 +142,7 @@ export class TraceId {
   static getRootTraceIdFromEnvironment(): string | undefined {
     return this.extractRootTraceId(
       process.env[this.XRAY_ENV_VAR] ??
-        process.env[this.XRAY_ENV_VAR.toLowerCase()],
+        process.env[this.XRAY_ENV_VAR.toLowerCase()]
     );
   }
 
@@ -169,17 +161,21 @@ export class TraceId {
     let segment: any = undefined;
     let envVar: string | undefined = undefined;
 
-    // Check for active X-Ray segment
-    try {
-      segment = AWSXRay.getSegment();
-      hasSegment = !!segment;
-    } catch (error) {
-      // No segment available
-    }
-
-    // Check for X-Ray environment variable
-    envVar = process.env._X_AMZN_TRACE_ID;
+    // First check for X-Ray environment variable (present when X-Ray is enabled)
+    envVar =
+      process.env._X_AMZN_TRACE_ID ??
+      process.env[this.XRAY_ENV_VAR.toLowerCase()];
     hasEnvVar = !!envVar;
+
+    // Only attempt to access AWSXRay.getSegment when X-Ray is active
+    if (hasEnvVar) {
+      try {
+        segment = AWSXRay.getSegment();
+        hasSegment = !!segment;
+      } catch (error) {
+        // No segment available or SDK not configured
+      }
+    }
 
     const isAvailable = hasSegment || hasEnvVar;
 
@@ -193,7 +189,7 @@ export class TraceId {
   }
 
   static getRootTraceIdFromSegment(
-    segment?: XRaySegmentPartial | null,
+    segment?: XRaySegmentPartial | null
   ): string | undefined {
     return this.extractRootTraceId(segment?.trace_id ?? null);
   }
@@ -207,7 +203,7 @@ export class TraceId {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`,
+        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`
       );
       return undefined;
     }
@@ -234,9 +230,9 @@ export class TracingContext {
     }
   }
 
-  static getTraceId(): string | undefined {
+  static getTraceId(): string {
     const existingTraceId = this.getStore()?.traceId;
-    return existingTraceId;
+    return existingTraceId || "";
   }
 
   static clear(): void {
@@ -245,7 +241,7 @@ export class TracingContext {
 
   static async withTraceId<T>(
     traceId: string,
-    fn: () => Promise<T>,
+    fn: () => Promise<T>
   ): Promise<T> {
     const current = this.getStore() || {};
     const next = { ...current, traceId };

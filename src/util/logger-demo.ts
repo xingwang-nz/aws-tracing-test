@@ -40,6 +40,16 @@ export class LoggerDemo {
       },
       timestamp: pino.stdTimeFunctions.isoTime,
       ...options?.pinoOptions,
+      // inject traceId from TracingContext into every log record when available
+      mixin: () => {
+        try {
+          const traceId = TracingContext.getTraceId();
+          return traceId ? { traceId } : {};
+        } catch (err) {
+          // If TracingContext is not available for some reason, don't break logging
+          return {};
+        }
+      },
     });
   }
 
@@ -50,21 +60,9 @@ export class LoggerDemo {
     return LoggerDemo.instance;
   }
 
-  private getTracingFields(): Record<string, string> {
-    const traceId = TracingContext.getTraceId();
-
-    const fields: Record<string, string> = {};
-
-    if (traceId) {
-      fields.traceId = traceId;
-    }
-
-    return fields;
-  }
-
   private processArgs(
     payload: LogData,
-    options?: LogOptions,
+    options?: LogOptions
   ): { message?: string; data?: any } {
     const message = payload.message;
 
@@ -100,18 +98,15 @@ export class LoggerDemo {
   private log(
     level: "info" | "warn" | "debug" | "trace" | "error" | "fatal",
     payload: LogData,
-    options?: LogOptions,
+    options?: LogOptions
   ): void {
     const { message: msg, data: logData } = this.processArgs(payload, options);
-    const tracingFields = this.getTracingFields();
     let metadata: Record<string, unknown> | undefined;
 
     if (logData instanceof Error) {
-      metadata = { ...tracingFields, err: logData };
+      metadata = { err: logData };
     } else if (logData && typeof logData === "object") {
-      metadata = { ...tracingFields, ...logData };
-    } else if (Object.keys(tracingFields).length > 0) {
-      metadata = { ...tracingFields };
+      metadata = { ...logData };
     }
 
     if (metadata && msg) {
