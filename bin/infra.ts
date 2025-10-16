@@ -14,8 +14,11 @@ const app = new cdk.App();
 // Create a dedicated stack that owns the replication monitor Lambda so it
 // can be shared by multiple replication stacks.
 import { S3ReplicationMonitorStack } from "../lib/s3-replication-monitor-stack";
+import { TracingTestStack2 } from "../lib/tracing-test-stack-2";
 
 new TracingTestStack(app, "tracing-test-stack");
+
+new TracingTestStack2(app, "tracing-test-stack-2");
 
 const monitorStack = new S3ReplicationMonitorStack(
   app,

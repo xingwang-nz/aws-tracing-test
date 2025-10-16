@@ -10,9 +10,6 @@ import { TracingEventBridge } from "../../util/eventbridge-utils";
 
 type ParsedBody = Record<string, unknown>;
 
-// const sleep = (ms: number): Promise<void> =>
-//   new Promise((resolve) => setTimeout(resolve, ms));
-
 const parseRequestBody = (body: string | null): ParsedBody => {
   if (!body) {
     return {};
@@ -107,7 +104,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
             },
           },
           null,
-          2
+          2,
         ),
       };
 
@@ -130,5 +127,5 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         }),
       };
     }
-  }
+  },
 );

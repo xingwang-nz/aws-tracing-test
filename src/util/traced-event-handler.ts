@@ -1,12 +1,5 @@
+import { TracedEvent } from "../common/model/models";
 import { TraceId, TracingContext } from "./tracing-utils";
-
-export type EventBridgeTraceSource = {
-  detail?: {
-    traceId?: string;
-    [key: string]: any;
-  };
-  [key: string]: any;
-};
 
 /**
  * Returns the event as-is since traceId is already in event.detail.traceId
@@ -15,18 +8,16 @@ export type EventBridgeTraceSource = {
  */
 export const standardEventBridgeExtractor = <EventType>(
   event: EventType,
-): EventBridgeTraceSource => {
+): TracedEvent => {
   // Standard EventBridge event structure: { detail: { traceId, traceHeader, ... } }
   // Return the entire event so fromTracedEventDetails can access event.detail.traceId
-  return event as unknown as EventBridgeTraceSource;
+  return event as unknown as TracedEvent;
 };
 
 /**
  *  { event: { detail: { event: { detail: { ... } } } } }
  */
-export const s3EventExtractor = <EventType>(
-  event: EventType,
-): EventBridgeTraceSource => {
+export const s3EventExtractor = <EventType>(event: EventType): TracedEvent => {
   const host = event as unknown as {
     event?: unknown;
     id?: unknown;
@@ -54,33 +45,37 @@ export const s3EventExtractor = <EventType>(
         hasTraceId: !!innerEvent.detail?.traceId,
       });
       // Return the innermost event which should have the detail with traceId
-      return innerEvent as EventBridgeTraceSource;
+      return innerEvent as TracedEvent;
     }
 
     console.log("S3 Event Extractor - Using event directly");
-    return nestedEvent as EventBridgeTraceSource;
+    return nestedEvent as TracedEvent;
   }
 
   // Fallback to treating the event as standard structure
   console.log("S3 Event Extractor - Using fallback to standard structure");
-  return event as unknown as EventBridgeTraceSource;
+  return event as unknown as TracedEvent;
 };
 
 // Default to standard EventBridge extractor
 const defaultExtractor = standardEventBridgeExtractor;
 
-export const tracedEventBridgeHandler = <EventType = any, ResultType = any>(
+export const tracedEventHandler = <EventType extends any, ResultType = any>(
   handler: (event: EventType, traceId: string) => Promise<ResultType>,
   options?: {
-    extract?: (event: EventType) => EventBridgeTraceSource;
+    extract?: (event: EventType) => TracedEvent;
   },
 ): ((event: EventType) => Promise<ResultType>) => {
   return async (event: EventType): Promise<ResultType> => {
     const extractor = options?.extract ?? defaultExtractor<EventType>;
-    const traceSource = extractor(event);
+    const tracedEvent = extractor(event);
 
-    // Use the new generic method, passing the detail object directly
-    const traceId = TraceId.fromTracedEventDetails(traceSource.detail || {});
+    const traceId = TraceId.fromTracedEvent({
+      ...tracedEvent,
+      detail: {
+        ...(tracedEvent?.detail || {}),
+      },
+    });
 
     return TracingContext.withTraceId(traceId, async () => {
       return handler(event, traceId);

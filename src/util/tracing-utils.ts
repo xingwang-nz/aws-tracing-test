@@ -1,17 +1,10 @@
 import { ulid } from "ulid";
 import { AsyncLocalStorage } from "async_hooks";
 import AWSXRay from "aws-xray-sdk-core";
+import { TracedEvent } from "../common/model/models";
 
 type XRaySegmentPartial = {
   trace_id?: string | null;
-};
-
-export type TracedDetail = {
-  detail?: {
-    traceId?: string;
-    [key: string]: any;
-  };
-  [key: string]: any;
 };
 
 export class TraceId {
@@ -53,7 +46,7 @@ export class TraceId {
     }
 
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment()
+      this.getCurrentSegment(),
     );
     if (awsTraceFromSegment) {
       console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
@@ -62,7 +55,7 @@ export class TraceId {
 
     const generatedTraceId = this.generate();
     console.log(
-      `No trace source found, generated new trace ID: ${generatedTraceId}`
+      `No trace source found, generated new trace ID: ${generatedTraceId}`,
     );
     return generatedTraceId;
   }
@@ -75,11 +68,11 @@ export class TraceId {
    *   2. X-Ray context (env/segment)
    *   3. Generate new
    */
-  static fromTracedEvent(tracedEvent: TracedDetail): string {
+  static fromTracedEvent(tracedEvent: TracedEvent): string {
     // First, check for explicit traceId
     if (tracedEvent?.detail?.traceId) {
       console.log(
-        `Found trace ID in event details: ${tracedEvent.detail.traceId}`
+        `Found trace ID in event details: ${tracedEvent.detail.traceId}`,
       );
       return tracedEvent.detail.traceId;
     }
@@ -93,7 +86,7 @@ export class TraceId {
 
     // Fallback to X-Ray segment
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment()
+      this.getCurrentSegment(),
     );
     if (awsTraceFromSegment) {
       console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
@@ -103,7 +96,7 @@ export class TraceId {
     // Final fallback to generated ID
     const generatedTraceId = this.generate();
     console.log(
-      `No trace source found in event details, generated new trace ID: ${generatedTraceId}`
+      `No trace source found in event details, generated new trace ID: ${generatedTraceId}`,
     );
     return generatedTraceId;
   }
@@ -119,13 +112,13 @@ export class TraceId {
 
   private static getHeader(
     headers: Record<string, string | undefined>,
-    headerName: string
+    headerName: string,
   ): string | undefined {
     return headers[headerName] ?? headers[headerName.toLowerCase()];
   }
 
   private static extractRootTraceId(
-    traceValue?: string | null
+    traceValue?: string | null,
   ): string | undefined {
     if (!traceValue) {
       return undefined;
@@ -142,7 +135,7 @@ export class TraceId {
   static getRootTraceIdFromEnvironment(): string | undefined {
     return this.extractRootTraceId(
       process.env[this.XRAY_ENV_VAR] ??
-        process.env[this.XRAY_ENV_VAR.toLowerCase()]
+        process.env[this.XRAY_ENV_VAR.toLowerCase()],
     );
   }
 
@@ -189,7 +182,7 @@ export class TraceId {
   }
 
   static getRootTraceIdFromSegment(
-    segment?: XRaySegmentPartial | null
+    segment?: XRaySegmentPartial | null,
   ): string | undefined {
     return this.extractRootTraceId(segment?.trace_id ?? null);
   }
@@ -203,7 +196,7 @@ export class TraceId {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`
+        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`,
       );
       return undefined;
     }
@@ -241,7 +234,7 @@ export class TracingContext {
 
   static async withTraceId<T>(
     traceId: string,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
   ): Promise<T> {
     const current = this.getStore() || {};
     const next = { ...current, traceId };
