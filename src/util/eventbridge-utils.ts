@@ -7,24 +7,13 @@ import {
 import AWSXRay from "aws-xray-sdk-core";
 import { TraceId, TracingContext } from "./tracing-utils";
 
-// Wrap EventBridge with X-Ray tracing when X-Ray is active
-const createEventBridgeClient = (): EventBridgeClient => {
-  let eventbridge = new EventBridgeClient({});
+const baseClient = new EventBridgeClient({});
+const wrappedClient = AWSXRay.captureAWSv3Client(
+  baseClient,
+) as EventBridgeClient;
 
-  // Check if X-Ray is available using centralized utility
-  const xrayAvailability = TraceId.getXRayAvailability();
-
-  if (xrayAvailability.isAvailable) {
-    console.log("X-Ray detected, wrapping EventBridge client with tracing", {
-      hasSegment: xrayAvailability.hasSegment,
-      hasEnvVar: xrayAvailability.hasEnvVar,
-    });
-    eventbridge = AWSXRay.captureAWSv3Client(eventbridge) as EventBridgeClient;
-  } else {
-    console.log("No X-Ray detected, using unwrapped EventBridge client");
-  }
-
-  return eventbridge;
+const getEventBridgeClient = (): EventBridgeClient => {
+  return TraceId.getXRayAvailability().isAvailable ? wrappedClient : baseClient;
 };
 
 export interface TracingEventDetail {
@@ -40,66 +29,40 @@ export class TracingEventBridge {
   private eventBusName: string;
 
   constructor(eventBusName: string) {
-    this.eventbridge = createEventBridgeClient();
+    this.eventbridge = getEventBridgeClient();
     this.eventBusName = eventBusName;
   }
 
   /**
-   * Send an event to EventBridge with trace ID propagation
-   * When X-Ray is enabled, the wrapped SDK client automatically handles X-Ray trace propagation
+   * Send an event to EventBridge with traceId propagation
+   * When X-Ray is enabled, the wrapped client automatically handles X-Ray trace propagation
    */
   async sendTracingEvent(
     source: string,
     detailType: string,
     detail: TracingEventDetail,
-    traceHeader?: string,
   ): Promise<PutEventsResponse> {
-    const eventDetail = {
-      ...detail,
-      metadata: {
-        ...detail.metadata,
-        sentAt: new Date().toISOString(),
-        eventBus: this.eventBusName,
-      },
-    };
-
-    // Only include traceHeader in event detail if explicitly provided
-    if (traceHeader) {
-      (eventDetail as any).traceHeader = traceHeader;
-    }
-
     const eventParams: PutEventsRequest = {
       Entries: [
         {
           Source: source,
           DetailType: detailType,
-          Detail: JSON.stringify(eventDetail),
+          Detail: JSON.stringify({
+            ...detail,
+            metadata: {
+              ...detail.metadata,
+              sentAt: new Date().toISOString(),
+              eventBus: this.eventBusName,
+            },
+          }),
           EventBusName: this.eventBusName,
         },
       ],
     };
 
-    console.log(`Sending event to EventBridge bus '${this.eventBusName}':`, {
-      source,
-      detailType,
-      traceId: detail.traceId,
-      eventBusName: this.eventBusName,
-    });
-
     try {
       const command = new PutEventsCommand(eventParams);
       const result = await this.eventbridge.send(command);
-
-      if (result.FailedEntryCount && result.FailedEntryCount > 0) {
-        console.error(
-          "Failed to send some events:",
-          result.Entries?.filter((entry) => entry.ErrorCode),
-        );
-        throw new Error(
-          `Failed to send ${result.FailedEntryCount} events to EventBridge`,
-        );
-      }
-
       console.log(
         "Successfully sent event to EventBridge:",
         result.Entries?.[0]?.EventId,
@@ -118,35 +81,17 @@ export class TracingEventBridge {
    * - When no X-Ray, only sends traceId from TracingContext in event detail
    */
   async sendApiGatewayEvent(requestData: any): Promise<PutEventsResponse> {
-    // Get trace ID from TracingContext (automatically generates if not exists)
     const traceId = TracingContext.getTraceId();
 
-    // Check if X-Ray is enabled using centralized utility
+    // Check if X-Ray is enabled
     const xrayAvailability = TraceId.getXRayAvailability();
-
-    if (xrayAvailability.isAvailable) {
-      console.log(
-        "X-Ray enabled, SDK wrapper will handle trace propagation automatically:",
-        {
-          traceIdFromALS: traceId,
-          hasSegment: xrayAvailability.hasSegment,
-          hasEnvVar: xrayAvailability.hasEnvVar,
-          segmentId: xrayAvailability.segment?.id,
-        },
-      );
-    } else {
-      console.log("No X-Ray detected, sending trace ID in event detail only:", {
-        traceIdFromALS: traceId,
-      });
-    }
 
     const detail: TracingEventDetail = {
       ...(traceId ? { traceId } : {}),
       timestamp: new Date().toISOString(),
-      source: "api-gateway",
+      source: requestData.source || "api-gateway",
       requestData,
       metadata: {
-        functionName: process.env.AWS_LAMBDA_FUNCTION_NAME,
         requestId: requestData.requestId,
         xrayEnabled: xrayAvailability.isAvailable,
         traceSource: xrayAvailability.isAvailable
@@ -160,7 +105,11 @@ export class TracingEventBridge {
       },
     };
 
-    // No need to pass traceHeader - X-Ray SDK wrapper handles this automatically
-    return this.sendTracingEvent("tracing-test", "API Gateway Event", detail);
+    // No need to pass traceHeader - X-Ray wrapper handles this automatically
+    return this.sendTracingEvent(
+      requestData.source || "api-gateway",
+      "API Gateway Event",
+      detail,
+    );
   }
 }

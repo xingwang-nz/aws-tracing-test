@@ -1,7 +1,7 @@
 import type { Context, Handler } from "aws-lambda";
 import { logger } from "../../util/logger-demo";
 import { TraceId, TracingContext } from "../../util/tracing-utils";
-import { tracedEventBridgeHandler } from "../../util/traced-eventbridge-handler";
+import { tracedEventHandler } from "../../util/traced-event-handler";
 import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import AWSXRay from "aws-xray-sdk-core";
 
@@ -59,7 +59,7 @@ interface StepFunctionControllerResult {
 }
 
 export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
-  tracedEventBridgeHandler(
+  tracedEventHandler(
     async (
       event: EventBridgeEvent,
       traceId: string,
@@ -81,7 +81,7 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
         const receivedTraceId = event.detail.traceId;
 
         // Extract trace ID using our TraceId utility to validate propagation
-        const extractedTraceId = TraceId.fromTracedEventDetails(event.detail);
+        const extractedTraceId = TraceId.fromTracedEvent(event);
 
         // Get trace ID from TracingContext (automatically generates if not exists)
         const contextTraceId = TracingContext.getTraceId();
