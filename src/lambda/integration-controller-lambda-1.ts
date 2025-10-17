@@ -1,7 +1,7 @@
 import type { Context, Handler } from "aws-lambda";
-import { logger } from "../../util/logger-demo";
-import { TraceId, TracingContext } from "../../util/tracing-utils";
-import { tracedEventHandler } from "../../util/traced-event-handler";
+import { logger } from "../util/logger-demo";
+import { TraceId, TracingContext } from "../util/tracing-utils";
+import { tracedEventHandler } from "../util/traced-event-handler";
 import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import AWSXRay from "aws-xray-sdk-core";
 

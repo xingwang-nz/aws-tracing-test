@@ -3,7 +3,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import { Construct } from "constructs";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import * as path from "path";
-import { createBasicLambda } from "./lambda-utils";
+import { createBasicLambda } from "./utils/lambda-utils";
 
 export interface S3ReplicationMonitorStackProps extends cdk.StackProps {
   logGroupPrefix?: string;

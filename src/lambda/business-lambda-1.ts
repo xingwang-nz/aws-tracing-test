@@ -1,6 +1,6 @@
 import type { Context, Handler } from "aws-lambda";
-import { logger } from "../../util/logger-demo";
-import { TraceId, TracingContext } from "../../util/tracing-utils";
+import { logger } from "../util/logger-demo";
+import { TraceId, TracingContext } from "../util/tracing-utils";
 
 // Input from Step Functions - can be any structure
 interface BusinessLambdaInput {
