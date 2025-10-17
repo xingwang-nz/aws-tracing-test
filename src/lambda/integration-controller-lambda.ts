@@ -25,9 +25,6 @@ interface EventBridgeEvent {
 }
 
 interface StepFunctionControllerResult {
-  statusCode: number;
-  message: string;
-  timestamp: string;
   tracing: {
     receivedTraceId: string;
     contextTraceId: string;
@@ -35,12 +32,11 @@ interface StepFunctionControllerResult {
   };
   eventData?: any;
   businessExecution?: any;
-  processingDuration: number;
-
-  detail: {
-    traceId: string;
-  };
 }
+
+const sfnClient = new SFNClient({});
+
+const wrappedClient = AWSXRay.captureAWSv3Client(sfnClient) as SFNClient;
 
 export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
   tracedEventHandler(
@@ -66,9 +62,6 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
       const xrayAvailability = TraceId.getXRayAvailability();
 
       const result: StepFunctionControllerResult = {
-        statusCode: 200,
-        message: "Successfully processed EventBridge event in Step Functions",
-        timestamp: new Date().toISOString(),
         tracing: {
           receivedTraceId,
           contextTraceId,
@@ -81,11 +74,6 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
           originalRequestData: event.detail.requestData,
           metadata: event.detail.metadata,
         },
-        processingDuration: Date.now() - processingStart,
-
-        detail: {
-          traceId: TracingContext.getTraceId(),
-        },
       };
 
       // If a business state machine ARN is provided via environment, start execution
@@ -95,7 +83,6 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
           // When running in Lambda with X-Ray enabled, we can wrap the SFN client
           // for trace propagation. The aws-xray-sdk-core integration is optional
           // here; we already import AWSXRay above.
-          const sfnClient = new SFNClient({});
 
           const startInput = JSON.stringify({
             receivedEvent: event,
@@ -112,7 +99,7 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
             message: "Started business state machine",
             data: startRes,
           });
-          // Attach business execution info to the response
+
           result.businessExecution = {
             executionArn: startRes.executionArn,
             startDate: startRes.startDate,
@@ -122,9 +109,6 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
             message: "Failed to start business state machine",
             data: { error: err },
           });
-          // surface failure to caller while keeping the main processing result
-          result.message =
-            "Processed EventBridge event; failed to start business state machine";
         }
       }
 
