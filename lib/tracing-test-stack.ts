@@ -9,32 +9,32 @@ import { Construct } from "constructs";
 import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "path";
-import { createTracedLambda } from "./lambda-utils";
+import { createTracedLambda } from "./utils/lambda-utils";
 
 export class TracingTestStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
     // Lambda function with X-Ray tracing enabled
-    const tracingTestLambda = createTracedLambda(this, {
-      id: "TracingTestLambda",
-      functionName: "tracing-test-lambda",
+    const eventSenderLambda = createTracedLambda(this, {
+      id: "EventSenderLambda",
+      functionName: "tvnz-event-bridge-sender-lambda",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/tracing-test-lambda/index.ts",
+        "../src/lambda/event-bridge-sender-lambda.ts",
       ),
     });
 
     // Custom EventBridge event bus with X-Ray tracing
     const tracingEventBus = new events.EventBus(this, "TracingEventBus", {
-      eventBusName: "tracing-test",
+      eventBusName: "tvnz-test-integration-bus-1",
     });
 
     // Grant the lambda permission to publish events to the custom event bus
-    tracingEventBus.grantPutEventsTo(tracingTestLambda);
+    tracingEventBus.grantPutEventsTo(eventSenderLambda);
 
     // Add environment variable for the event bus ARN
-    tracingTestLambda.addEnvironment(
+    eventSenderLambda.addEnvironment(
       "EVENT_BUS_NAME",
       tracingEventBus.eventBusName,
     );
@@ -42,21 +42,18 @@ export class TracingTestStack extends cdk.Stack {
     // Step Functions controller lambda
     const sfControllerLambda = createTracedLambda(this, {
       id: "SfControllerLambda",
-      functionName: "tracing-test-sf-controller-lambda",
+      functionName: "tvnz-test-integration-controller-lambda-1",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/tracing-test-sf-controller-lambda/index.ts",
+        "../src/lambda/integration-controller-lambda-1.ts",
       ),
     });
 
     // Business Lambda function
     const businessLambda = createTracedLambda(this, {
       id: "BusinessLambda",
-      functionName: "tracing-test-lambda-business",
-      entryPath: path.join(
-        __dirname,
-        "../src/lambda/tracing-test-lambda-business/index.ts",
-      ),
+      functionName: "tvnz-test-business-lambda-1",
+      entryPath: path.join(__dirname, "../src/lambda/business-lambda-1.ts"),
     });
 
     // Business Step Functions state machine
@@ -76,7 +73,7 @@ export class TracingTestStack extends cdk.Stack {
       this,
       "BusinessStepFunctionLogGroup",
       {
-        logGroupName: "/aws/stepfunctions/tracing-test-sf-business",
+        logGroupName: "/aws/stepfunctions/tvnz-test-business-1",
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       },
@@ -86,7 +83,7 @@ export class TracingTestStack extends cdk.Stack {
       this,
       "BusinessStepFunction",
       {
-        stateMachineName: "tracing-test-sf-business",
+        stateMachineName: "tvnz-test-business-1",
         definition: businessDefinition,
         tracingEnabled: true,
         logs: {
@@ -123,17 +120,17 @@ export class TracingTestStack extends cdk.Stack {
       this,
       "StepFunctionLogGroup",
       {
-        logGroupName: "/aws/stepfunctions/tracing-test-sf",
+        logGroupName: "/aws/stepfunctions/tvnz-test-integration-1",
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       },
     );
 
-    const tracingStepFunction = new stepfunctions.StateMachine(
+    const integrationStepFunction = new stepfunctions.StateMachine(
       this,
-      "TracingStepFunction",
+      "IntegrationStepFunction",
       {
-        stateMachineName: "tracing-test-sf",
+        stateMachineName: "tvnz-test-integration-1",
         definition,
         tracingEnabled: true,
         logs: {
@@ -148,7 +145,7 @@ export class TracingTestStack extends cdk.Stack {
     const eventRule = new events.Rule(this, "TracingEventRule", {
       eventBus: tracingEventBus,
       eventPattern: {
-        source: ["tracing-test"],
+        source: ["api-gateway"],
         detailType: ["API Gateway Event"],
       },
     });
@@ -157,14 +154,14 @@ export class TracingTestStack extends cdk.Stack {
 
     // Add Step Functions as target
     eventRule.addTarget(
-      new targets.SfnStateMachine(tracingStepFunction, {
+      new targets.SfnStateMachine(integrationStepFunction, {
         input: events.RuleTargetInput.fromEventPath("$"),
       }),
     );
 
     // REST API Gateway with X-Ray tracing enabled
     const api = new apigateway.RestApi(this, "TracingTestApi", {
-      restApiName: "tracing-test-api",
+      restApiName: "tvnz-test-integration-rest-api-1",
       description: "API Gateway with X-Ray tracing for testing data flow",
       deployOptions: {
         stageName: "dev",
@@ -193,7 +190,7 @@ export class TracingTestStack extends cdk.Stack {
 
     // Lambda integration
     const lambdaIntegration = new apigateway.LambdaIntegration(
-      tracingTestLambda,
+      eventSenderLambda,
       {
         requestTemplates: { "application/json": '{ "statusCode": "200" }' },
         proxy: true,
@@ -220,8 +217,9 @@ export class TracingTestStack extends cdk.Stack {
     });
 
     // --- HTTP API (L2) proxy to the REST API ---
+    // https://belirb2aoe.execute-api.ap-southeast-2.amazonaws.com/prod/quickplay/test-tracing
     const httpApi = new httpApigateway.HttpApi(this, "TvnzTestEntryApi", {
-      apiName: "tvnz-test-entry-api-gateway",
+      apiName: "tvnz-test-entry-http-api",
     });
 
     new httpApigateway.HttpStage(this, "TvnzTestEntryStage", {

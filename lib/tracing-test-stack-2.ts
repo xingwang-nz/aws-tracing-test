@@ -10,7 +10,7 @@ import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as path from "path";
-import { createTracedLambda } from "./lambda-utils";
+import { createTracedLambda } from "./utils/lambda-utils";
 
 export class TracingTestStack2 extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -21,7 +21,7 @@ export class TracingTestStack2 extends cdk.Stack {
       this,
       "tvnz-test-integration-event-bus",
       {
-        eventBusName: "tvnz-test-integration-event-bus",
+        eventBusName: "tvnz-test-integration-bus-2",
       },
     );
 
@@ -29,29 +29,29 @@ export class TracingTestStack2 extends cdk.Stack {
 
     const sfControllerLambda = createTracedLambda(this, {
       id: "tvnz-test-sf-controller-lambda",
-      functionName: "tvnz-test-sf-controller-lambda",
+      functionName: "tvnz-test-integration-controller-lambda-2",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/tvnz-test-sf-controller-lambda.ts",
+        "../src/lambda/integration-controller-lambda-2.ts",
       ),
     });
 
     // Business Lambdas invoked by the new business Step Function
     const businessLambda1 = createTracedLambda(this, {
-      id: "tvnz-test-tracing-business-lambda1",
-      functionName: "tvnz-test-tracing-business-lambda1",
+      id: "tvnz-test-business-lambda-2a",
+      functionName: "tvnz-test-business-2a",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/business/tracing-business-lambda1.ts",
+        "../src/lambda/business-2/business-lambda-2a.ts",
       ),
     });
 
     const businessLambda2 = createTracedLambda(this, {
-      id: "tvnz-test-tracing-business-lambda2",
-      functionName: "tvnz-test-tracing-business-lambda2",
+      id: "tvnz-test-business-lambda-2b",
+      functionName: "tvnz-test-business-2b",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/business/tracing-business-lambda2.ts",
+        "../src/lambda/business-2/business-lambda-2b.ts",
       ),
     });
 
@@ -71,7 +71,7 @@ export class TracingTestStack2 extends cdk.Stack {
       this,
       "StepFunctionLogGroup",
       {
-        logGroupName: "/aws/stepfunctions/tvnz-test-tracing-sf-lg",
+        logGroupName: "/aws/stepfunctions/tvnz-test-state-machine-2",
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
       },
@@ -81,7 +81,7 @@ export class TracingTestStack2 extends cdk.Stack {
       this,
       "BusinessStateMachine",
       {
-        stateMachineName: "tvnz-business-state-machine",
+        stateMachineName: "tvnz-test-business-2",
         definition: businessTask1.next(businessTask2),
         tracingEnabled: true,
         logs: {
@@ -113,7 +113,7 @@ export class TracingTestStack2 extends cdk.Stack {
       this,
       "IntegrationStepFunction",
       {
-        stateMachineName: "tvnz-test-integration-sf",
+        stateMachineName: "tvnz-test-integration-2",
         definition: processEventTask,
         tracingEnabled: true,
         logs: {
@@ -128,7 +128,7 @@ export class TracingTestStack2 extends cdk.Stack {
     const integrationEventRule = new events.Rule(this, "IntegrationEventRule", {
       eventBus: integrationEventBus,
       eventPattern: {
-        source: ["tracing-test"],
+        source: ["api-gateway"],
         detailType: ["API Gateway Event"],
       },
     });
@@ -141,7 +141,7 @@ export class TracingTestStack2 extends cdk.Stack {
     );
 
     const restApi = new apigateway.RestApi(this, "IntegrationRestApi", {
-      restApiName: "tvnz-integration-rest-api",
+      restApiName: "tvnz-test-integration-rest-api-2",
       deployOptions: {
         stageName: "dev",
         tracingEnabled: true,
@@ -233,7 +233,7 @@ export class TracingTestStack2 extends cdk.Stack {
        {
                 "Entries": [
                     {
-                    "Source": "tracing-test",
+                    "Source": "api-gateway",
                     "DetailType": "API Gateway Event",
                     "Detail": "$util.escapeJavaScript($input.body)",
                     "EventBusName": "${integrationEventBus.eventBusName}"
