@@ -14,11 +14,38 @@ const app = new cdk.App();
 // Create a dedicated stack that owns the replication monitor Lambda so it
 // can be shared by multiple replication stacks.
 import { S3ReplicationMonitorStack } from "../lib/s3-replication-monitor-stack";
-import { TracingTestStack2 } from "../lib/tracing-test-stack-2";
+import { TvnzIntegrationEventBusStack } from "../lib/tvnz-integration-event-bus-stack";
+import { TvnzEventBusSenderLambdaStack } from "../lib/tvnz-event-bus-sender-lambda-stack";
+import { TvnzTracingTestStack2 } from "../lib/tracing-test-stack-2";
 
-new TracingTestStack(app, "tracing-test-stack");
+const integrationBusStack = new TvnzIntegrationEventBusStack(
+  app,
+  "tvnz-integration-event-bus-stack",
+  {
+    env: { region: "ap-southeast-2" },
+  },
+);
 
-new TracingTestStack2(app, "tracing-test-stack-2");
+// Create shared lambda stack for EventBridge sender
+const senderStack = new TvnzEventBusSenderLambdaStack(
+  app,
+  "tvnz-event-bus-sender-stack",
+  {
+    env: { region: "ap-southeast-2" },
+    eventBus: integrationBusStack.eventBus,
+  },
+);
+senderStack.addDependency(integrationBusStack);
+
+new TracingTestStack(app, "tracing-test-stack", {
+  env: { region: "ap-southeast-2" },
+  eventSenderLambda: senderStack.eventSenderLambda,
+  eventBus: integrationBusStack.eventBus,
+}).addDependency(senderStack);
+
+new TvnzTracingTestStack2(app, "tracing-test-stack-2", {
+  eventBus: integrationBusStack.eventBus,
+});
 
 const monitorStack = new S3ReplicationMonitorStack(
   app,

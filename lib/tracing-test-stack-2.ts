@@ -12,136 +12,20 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as path from "path";
 import { createTracedLambda } from "./utils/lambda-utils";
 
-export class TracingTestStack2 extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+export interface TvnzTracingTestStack2Props extends cdk.StackProps {
+  readonly eventBus: events.EventBus;
+}
+
+export class TvnzTracingTestStack2 extends cdk.Stack {
+  constructor(scope: Construct, id: string, props: TvnzTracingTestStack2Props) {
     super(scope, id, props);
 
-    // Custom EventBridge event bus with X-Ray tracing
-    const integrationEventBus = new events.EventBus(
-      this,
-      "tvnz-test-integration-event-bus",
-      {
-        eventBusName: "tvnz-test-integration-bus-2",
-      },
-    );
-
-    //    integrationEventBus.grantPutEventsTo(tracingTestLambda);
-
-    const sfControllerLambda = createTracedLambda(this, {
-      id: "tvnz-test-sf-controller-lambda",
-      functionName: "tvnz-test-integration-controller-lambda-2",
-      entryPath: path.join(
-        __dirname,
-        "../src/lambda/integration-controller-lambda-2.ts",
-      ),
-    });
-
-    // Business Lambdas invoked by the new business Step Function
-    const businessLambda1 = createTracedLambda(this, {
-      id: "tvnz-test-business-lambda-2a",
-      functionName: "tvnz-test-business-2a",
-      entryPath: path.join(
-        __dirname,
-        "../src/lambda/business-2/business-lambda-2a.ts",
-      ),
-    });
-
-    const businessLambda2 = createTracedLambda(this, {
-      id: "tvnz-test-business-lambda-2b",
-      functionName: "tvnz-test-business-2b",
-      entryPath: path.join(
-        __dirname,
-        "../src/lambda/business-2/business-lambda-2b.ts",
-      ),
-    });
-
-    // Step Function definition for business workflow: Lambda1 -> Lambda2
-    const businessTask1 = new sfnTasks.LambdaInvoke(this, "BusinessTask1", {
-      lambdaFunction: businessLambda1,
-      outputPath: "$",
-    });
-
-    const businessTask2 = new sfnTasks.LambdaInvoke(this, "BusinessTask2", {
-      lambdaFunction: businessLambda2,
-      outputPath: "$",
-    });
-
-    // Create CloudWatch Log Group for Step Functions (used by both state machines)
-    const stepFunctionLogGroup = new logs.LogGroup(
-      this,
-      "StepFunctionLogGroup",
-      {
-        logGroupName: "/aws/stepfunctions/tvnz-test-state-machine-2",
-        retention: logs.RetentionDays.ONE_WEEK,
-        removalPolicy: cdk.RemovalPolicy.DESTROY,
-      },
-    );
-
-    const businessStateMachine = new stepfunctions.StateMachine(
-      this,
-      "BusinessStateMachine",
-      {
-        stateMachineName: "tvnz-test-business-2",
-        definition: businessTask1.next(businessTask2),
-        tracingEnabled: true,
-        logs: {
-          destination: stepFunctionLogGroup,
-          level: stepfunctions.LogLevel.ALL,
-          includeExecutionData: true,
-        },
-      },
-    );
-
-    // Allow controller Lambda to start the business state machine
-    businessStateMachine.grantStartExecution(sfControllerLambda);
-
-    // Expose the business state machine ARN to the controller Lambda
-    sfControllerLambda.addEnvironment(
-      "BUSINESS_SFN_ARN",
-      businessStateMachine.stateMachineArn,
-    );
-
-    const processEventTask = new sfnTasks.LambdaInvoke(
-      this,
-      "ProcessEventTask",
-      {
-        lambdaFunction: sfControllerLambda,
-        outputPath: "$",
-      },
-    );
-    const integrationStepFunction = new stepfunctions.StateMachine(
-      this,
-      "IntegrationStepFunction",
-      {
-        stateMachineName: "tvnz-test-integration-2",
-        definition: processEventTask,
-        tracingEnabled: true,
-        logs: {
-          destination: stepFunctionLogGroup,
-          level: stepfunctions.LogLevel.ALL,
-          includeExecutionData: true,
-        },
-      },
-    );
-
-    // EventBridge rule to trigger Step Functions
-    const integrationEventRule = new events.Rule(this, "IntegrationEventRule", {
-      eventBus: integrationEventBus,
-      eventPattern: {
-        source: ["api-gateway"],
-        detailType: ["API Gateway Event"],
-      },
-    });
-
-    // Add Step Functions as target
-    integrationEventRule.addTarget(
-      new targets.SfnStateMachine(integrationStepFunction, {
-        input: events.RuleTargetInput.fromEventPath("$"),
-      }),
-    );
+    // This stack now focuses on the REST API integration. Integration
+    // EventBus and StepFunctions were moved to a dedicated
+    // TvnzIntegrationEventBusStack to allow reuse across multiple APIs.
 
     const restApi = new apigateway.RestApi(this, "IntegrationRestApi", {
-      restApiName: "tvnz-test-integration-rest-api-2",
+      restApiName: "tvnz-test-integration-2-rest-api",
       deployOptions: {
         stageName: "dev",
         tracingEnabled: true,
@@ -158,11 +42,18 @@ export class TracingTestStack2 extends cdk.Stack {
       description: "Role for API Gateway to PutEvents to EventBridge",
     });
 
-    // Allow PutEvents to the specific event bus
+    // NOTE: The EventBus is now owned by TvnzIntegrationEventBusStack.
+    // The API Gateway role permissions should be set in that stack or
+    // applied here by referencing the bus ARN when available.
+
+    // Require the EventBus construct to be passed in so we can grant precise
+    // permissions and use its tokenized name in the integration mapping template.
+
+    // Grant API Gateway PutEvents to the provided EventBus ARN
     apiGwRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["events:PutEvents"],
-        resources: [integrationEventBus.eventBusArn],
+        resources: [props.eventBus.eventBusArn],
       }),
     );
 
@@ -227,21 +118,20 @@ export class TracingTestStack2 extends cdk.Stack {
 
     // VTL docs:
     // https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-mapping-template-reference.html
+    // Use the EventBus construct's name token directly in the VTL template.
+    const busNameToken = props.eventBus.eventBusName;
+
     const eventRequestTemplates = () => ({
-      "application/json": `
-
-       {
-                "Entries": [
-                    {
-                    "Source": "api-gateway",
-                    "DetailType": "API Gateway Event",
-                    "Detail": "$util.escapeJavaScript($input.body)",
-                    "EventBusName": "${integrationEventBus.eventBusName}"
-                    }
-                ]
-                }
-
-                `.trim(),
+      "application/json": `{
+        "Entries": [
+          {
+            "Source": "api-gateway",
+            "DetailType": "API Gateway Event",
+            "Detail": "$util.escapeJavaScript($input.body)",
+            "EventBusName": "${busNameToken}"
+          }
+        ]
+      }`.trim(),
     });
 
     const buildPutEvent = () =>
