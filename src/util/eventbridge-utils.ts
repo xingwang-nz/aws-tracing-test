@@ -5,16 +5,14 @@ import {
   PutEventsResponse,
 } from "@aws-sdk/client-eventbridge";
 import AWSXRay from "aws-xray-sdk-core";
+import { wrapClientWithXRay } from "./xray-utils";
 import { TraceId, TracingContext } from "./tracing-utils";
 
 const baseClient = new EventBridgeClient({});
-const wrappedClient = AWSXRay.captureAWSv3Client(
-  baseClient,
-) as EventBridgeClient;
 
-const getEventBridgeClient = (): EventBridgeClient => {
-  return TraceId.getXRayAvailability().isAvailable ? wrappedClient : baseClient;
-};
+// const getEventBridgeClient = (): EventBridgeClient => {
+//   return TraceId.getXRayAvailability().isAvailable ? wrappedClient : baseClient;
+// };
 
 export interface TracingEventDetail {
   traceId?: string;
@@ -29,7 +27,7 @@ export class TracingEventBridge {
   private eventBusName: string;
 
   constructor(eventBusName: string) {
-    this.eventbridge = getEventBridgeClient();
+    this.eventbridge = wrapClientWithXRay(baseClient);
     this.eventBusName = eventBusName;
   }
 
@@ -45,6 +43,7 @@ export class TracingEventBridge {
     const traceHeader = TraceId.getXRayAvailability().isAvailable
       ? TraceId.getXRayAvailability().envVar
       : undefined;
+
     const eventParams: PutEventsRequest = {
       Entries: [
         {

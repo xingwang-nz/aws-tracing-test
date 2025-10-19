@@ -9,7 +9,7 @@ type XRaySegmentPartial = {
 
 export class TraceId {
   private static readonly TRACE_ID_HEADER = "x-trace-id";
-  private static readonly AWS_TRACE_HEADER = "X-Amzn-Trace-Id";
+  // private static readonly AWS_TRACE_HEADER = "X-Amzn-Trace-Id";
   private static readonly XRAY_ENV_VAR = "_X_AMZN_TRACE_ID";
   private static readonly XRAY_TRACE_ID_REGEX =
     /(?:Root=)?1-([0-9a-f]{8})-([0-9a-f]{24})/i;
@@ -20,7 +20,7 @@ export class TraceId {
 
   /**
    * Extract trace ID from API Gateway event headers
-   * Priority: x-trace-id -> X-Amzn-Trace-Id header -> X-Ray env -> X-Ray segment -> generate new
+   * Priority: x-trace-id -> X-Ray env -> X-Ray segment -> generate new
    */
   static fromAPIGatewayEvent(event: {
     headers?: { [key: string]: string | undefined };
@@ -28,26 +28,30 @@ export class TraceId {
     const headers = event.headers || {};
 
     const explicitTraceId = this.getHeader(headers, this.TRACE_ID_HEADER);
+    // const awsTraceHeader = this.getHeader(headers, this.AWS_TRACE_HEADER);
+    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
+
+    console.log(`Found explicit trace ID in headers: ${explicitTraceId}`);
+    // console.log(`${this.AWS_TRACE_HEADER} from header: ${awsTraceHeader}`);
+    console.log(`${this.XRAY_ENV_VAR} from env: ${awsTraceFromEnv}`);
+
     if (explicitTraceId) {
       return explicitTraceId;
     }
 
-    const awsTraceHeader = this.getHeader(headers, this.AWS_TRACE_HEADER);
-    const awsTraceFromHeader = this.extractRootTraceId(awsTraceHeader);
-    if (awsTraceFromHeader) {
-      console.log(`X-Ray trace ID from header: ${awsTraceFromHeader}`);
-      return awsTraceFromHeader;
-    }
+    // const awsTraceFromHeader = this.extractRootTraceId(awsTraceHeader);
+    // if (awsTraceFromHeader) {
+    //   return awsTraceFromHeader;
+    // }
 
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
     if (awsTraceFromEnv) {
-      console.log(`X-Ray trace ID from env: ${awsTraceFromEnv}`);
       return awsTraceFromEnv;
     }
 
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
       this.getCurrentSegment(),
     );
+
     if (awsTraceFromSegment) {
       console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
       return awsTraceFromSegment;
@@ -69,16 +73,17 @@ export class TraceId {
    *   3. Generate new
    */
   static fromTracedEvent(tracedEvent: TracedEvent): string {
+    const explicitTraceId = tracedEvent?.detail?.traceId;
+    console.log(`explicitTraceId: ${explicitTraceId}`);
+    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
+    console.log(`${this.XRAY_ENV_VAR} from env: ${awsTraceFromEnv}`);
+
     // First, check for explicit traceId
-    if (tracedEvent?.detail?.traceId) {
-      console.log(
-        `Found trace ID in event details: ${tracedEvent.detail.traceId}`,
-      );
-      return tracedEvent.detail.traceId;
+    if (explicitTraceId) {
+      return explicitTraceId;
     }
 
     // Fallback to X-Ray environment
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
     if (awsTraceFromEnv) {
       console.log(`X-Ray trace ID from env: ${awsTraceFromEnv}`);
       return awsTraceFromEnv;
