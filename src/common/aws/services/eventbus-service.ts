@@ -4,26 +4,26 @@ import {
   PutEventsRequest,
   PutEventsResponse,
 } from "@aws-sdk/client-eventbridge";
-import { wrapClientWithXRay } from "./xray-utils";
-import { TracedEvent, TraceId, TracingContext } from "./tracing-utils";
-import { logger } from "./logger-demo";
+import { TracedEvent } from "../../../util/tracing-utils";
+import { logger } from "../../../util/logger-demo";
+import { XrayService } from "./xray-service";
 
 const ebClient = new EventBridgeClient({});
 
-export class TracingEventBridge {
+class EventbusClient {
   private eventbridge: EventBridgeClient;
   private eventBusName: string;
 
-  constructor(eventBusName: string) {
-    this.eventbridge = wrapClientWithXRay(ebClient);
+  private constructor(eventBusName: string) {
+    this.eventbridge = XrayService.wrapClientWithXRay(ebClient);
     this.eventBusName = eventBusName;
   }
 
-  /**
-   * Send an event to EventBridge with traceId propagation
-   * When X-Ray is enabled, the wrapped client automatically handles X-Ray trace propagation
-   */
-  async sendTracingEvent({
+  static forBus(eventBusName: string): EventbusClient {
+    return new EventbusClient(eventBusName);
+  }
+
+  async sendEvent({
     source,
     detailType,
     detail,
@@ -56,9 +56,13 @@ export class TracingEventBridge {
     } catch (error) {
       logger.error({
         message: "Error sending event to EventBridge:",
-        data: error,
+        data: error as Error,
       });
       throw error;
     }
   }
 }
+
+export const EventbusService = {
+  client: EventbusClient,
+};

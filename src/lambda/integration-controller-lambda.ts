@@ -4,7 +4,7 @@ import { TraceId, TracingContext } from "../util/tracing-utils";
 import { tracedEventHandler } from "../util/traced-event-handler";
 import { SFNClient, StartExecutionCommand } from "@aws-sdk/client-sfn";
 import AWSXRay from "aws-xray-sdk-core";
-import { wrapClientWithXRay } from "../util/xray-utils";
+import { XrayService } from "../common/aws/services/xray-service";
 
 // EventBridge event structure from Step Functions
 interface EventBridgeEvent {
@@ -96,7 +96,9 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
           });
 
           // const startRes = await sfnClient.send(startCmd);
-          const startRes = await wrapClientWithXRay(sfnClient).send(startCmd);
+          const startRes = await XrayService.wrapClientWithXRay(sfnClient).send(
+            startCmd,
+          );
           logger.info({
             message: "Started business state machine",
             data: startRes,

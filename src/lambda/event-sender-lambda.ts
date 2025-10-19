@@ -6,11 +6,10 @@ import type {
 import { tracedApiGatewayHandler } from "../util/traced-api-gateway-handler";
 import { logger } from "../util/logger-demo";
 import { TracingContext } from "../util/tracing-utils";
-import { TracingEventBridge } from "../util/eventbridge-utils";
 import { TraceId } from "../util/tracing-utils";
 import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
-import AWSXRay from "aws-xray-sdk-core";
-import { wrapClientWithXRay } from "../util/xray-utils";
+import { EventbusService } from "../common/aws/services/eventbus-service";
+import { XrayService } from "../common/aws/services/xray-service";
 
 type ParsedBody = Record<string, unknown>;
 
@@ -46,7 +45,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
       // Send event to EventBridge with trace propagation
       const eventBusName = process.env.EVENT_BUS_NAME;
       if (eventBusName) {
-        const eventBridge = new TracingEventBridge(eventBusName);
+        const eventBridge = EventbusService.client.forBus(eventBusName);
 
         // TracingContext.getTraceId() automatically handles trace ID generation
         console.log("Sending EventBridge event using TracingContext:", {
@@ -54,7 +53,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
         });
 
-        await eventBridge.sendTracingEvent({
+        await eventBridge.sendEvent({
           source: "api-gateway",
           detailType: "API Gateway Event",
           detail: { ...requestBody, traceId: TracingContext.getTraceId() },
@@ -64,7 +63,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         const snsTopicArn = process.env.TRACING_SNS_TOPIC_ARN;
         if (snsTopicArn) {
           const baseSns = new SNSClient({});
-          const sns: SNSClient = wrapClientWithXRay(baseSns);
+          const sns: SNSClient = XrayService.wrapClientWithXRay(baseSns);
 
           const publishInput = {
             TopicArn: snsTopicArn,
