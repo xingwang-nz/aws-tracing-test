@@ -95,6 +95,7 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
           });
 
           const startRes = await sfnClient.send(startCmd);
+          // const startRes = await wrappedClient.send(startCmd);
           logger.info({
             message: "Started business state machine",
             data: startRes,

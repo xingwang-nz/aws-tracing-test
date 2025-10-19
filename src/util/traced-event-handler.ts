@@ -70,12 +70,7 @@ export const tracedEventHandler = <EventType extends any, ResultType = any>(
     const extractor = options?.extract ?? defaultExtractor<EventType>;
     const tracedEvent = extractor(event);
 
-    const traceId = TraceId.fromTracedEvent({
-      ...tracedEvent,
-      detail: {
-        ...(tracedEvent?.detail || {}),
-      },
-    });
+    const traceId = TraceId.fromTracedEvent(tracedEvent);
 
     return TracingContext.withTraceId(traceId, async () => {
       return handler(event, traceId);

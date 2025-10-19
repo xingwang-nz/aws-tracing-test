@@ -6,19 +6,19 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as events from "aws-cdk-lib/aws-events";
 import * as iam from "aws-cdk-lib/aws-iam";
 
-export interface TvnzEventBridgeSenderProps extends cdk.StackProps {
+export interface TvnzEventSenderStackProps extends cdk.StackProps {
   readonly eventBus: events.EventBus;
 }
 
-export class TvnzEventBusSenderLambdaStack extends cdk.Stack {
+export class TvnzEventSenderStack extends cdk.Stack {
   public readonly eventSenderLambda: lambda.Function;
 
-  constructor(scope: Construct, id: string, props: TvnzEventBridgeSenderProps) {
+  constructor(scope: Construct, id: string, props: TvnzEventSenderStackProps) {
     super(scope, id, props);
 
     this.eventSenderLambda = createTracedLambda(this, {
       id: "EventSenderLambda",
-      functionName: "tvnz-event-sender-lambda",
+      functionName: "tvnz-event-sender",
       entryPath: path.join(__dirname, "../src/lambda/event-sender-lambda.ts"),
     });
 
@@ -29,6 +29,10 @@ export class TvnzEventBusSenderLambdaStack extends cdk.Stack {
     this.eventSenderLambda.addEnvironment(
       "EVENT_BUS_NAME",
       props.eventBus.eventBusName,
+    );
+
+    this.eventSenderLambda.role?.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess"),
     );
   }
 }
