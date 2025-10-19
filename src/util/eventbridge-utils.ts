@@ -42,6 +42,9 @@ export class TracingEventBridge {
     detailType: string,
     detail: TracingEventDetail,
   ): Promise<PutEventsResponse> {
+    const traceHeader = TraceId.getXRayAvailability().isAvailable
+      ? TraceId.getXRayAvailability().envVar
+      : undefined;
     const eventParams: PutEventsRequest = {
       Entries: [
         {
@@ -56,6 +59,7 @@ export class TracingEventBridge {
             },
           }),
           EventBusName: this.eventBusName,
+          // TraceHeader: traceHeader,
         },
       ],
     };

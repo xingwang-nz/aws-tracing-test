@@ -5,7 +5,7 @@ import type {
 } from "aws-lambda";
 import { tracedApiGatewayHandler } from "../util/traced-api-gateway-handler";
 import { logger } from "../util/logger-demo";
-import { TraceId, TracingContext } from "../util/tracing-utils";
+import { TracingContext } from "../util/tracing-utils";
 import { TracingEventBridge } from "../util/eventbridge-utils";
 
 type ParsedBody = Record<string, unknown>;

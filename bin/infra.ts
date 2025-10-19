@@ -15,7 +15,7 @@ const app = new cdk.App();
 // can be shared by multiple replication stacks.
 import { S3ReplicationMonitorStack } from "../lib/s3-replication-monitor-stack";
 import { TvnzIntegrationEventBusStack } from "../lib/tvnz-integration-event-bus-stack";
-import { TvnzEventBusSenderLambdaStack } from "../lib/tvnz-event-bus-sender-lambda-stack";
+import { TvnzEventSenderStack } from "../lib/tvnz-event-sender-stack";
 import { TvnzTracingTestStack2 } from "../lib/tracing-test-stack-2";
 
 const integrationBusStack = new TvnzIntegrationEventBusStack(
@@ -27,14 +27,10 @@ const integrationBusStack = new TvnzIntegrationEventBusStack(
 );
 
 // Create shared lambda stack for EventBridge sender
-const senderStack = new TvnzEventBusSenderLambdaStack(
-  app,
-  "tvnz-event-bus-sender-stack",
-  {
-    env: { region: "ap-southeast-2" },
-    eventBus: integrationBusStack.eventBus,
-  },
-);
+const senderStack = new TvnzEventSenderStack(app, "tvnz-event-sender-stack", {
+  env: { region: "ap-southeast-2" },
+  eventBus: integrationBusStack.eventBus,
+});
 senderStack.addDependency(integrationBusStack);
 
 new TracingTestStack(app, "tracing-test-stack", {
