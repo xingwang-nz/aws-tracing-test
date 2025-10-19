@@ -1,16 +1,13 @@
-import { TracedEvent } from "../common/model/models";
-import { TraceId, TracingContext } from "./tracing-utils";
+import { TracedEvent, TraceId, TracingContext } from "./tracing-utils";
 
 /**
  * Returns the event as-is since traceId is already in event.detail.traceId
  * (e.g, API Gateway events from eb-sf-agw-event.json)
  *
  */
-export const standardEventBridgeExtractor = <EventType>(
+export const standardEventExtractor = <EventType>(
   event: EventType,
 ): TracedEvent => {
-  // Standard EventBridge event structure: { detail: { traceId, traceHeader, ... } }
-  // Return the entire event so fromTracedEventDetails can access event.detail.traceId
   return event as unknown as TracedEvent;
 };
 
@@ -58,7 +55,7 @@ export const s3EventExtractor = <EventType>(event: EventType): TracedEvent => {
 };
 
 // Default to standard EventBridge extractor
-const defaultExtractor = standardEventBridgeExtractor;
+const defaultExtractor = standardEventExtractor;
 
 export const tracedEventHandler = <EventType extends any, ResultType = any>(
   handler: (event: EventType, traceId: string) => Promise<ResultType>,
