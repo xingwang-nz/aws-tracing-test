@@ -17,7 +17,7 @@ export const XrayService = {
    */
   wrapClientWithXRay: <T extends AwsV3Client>(
     client: T,
-    options?: { force?: boolean; captureFn?: (c: any) => any },
+    options?: { force?: boolean },
   ): T => {
     const availability = TraceId.getXRayAvailability().isAvailable;
     if (!availability && !options?.force) {
@@ -25,23 +25,13 @@ export const XrayService = {
     }
 
     // avoid double-wrapping
-    if ((client as any)[X_RAY_WRAPPED_FLAG]) {
+    if (client[X_RAY_WRAPPED_FLAG]) {
       return client;
     }
 
     try {
-      const capture = options?.captureFn ?? (AWSXRay as any).captureAWSv3Client;
-      if (typeof capture !== "function") {
-        return client;
-      }
-
-      const wrapped = capture(client as any) as T;
-      try {
-        (wrapped as any)[X_RAY_WRAPPED_FLAG] = true;
-      } catch {
-        // ignore if can't set property
-      }
-
+      const wrapped = AWSXRay.captureAWSv3Client(client as any) as T;
+      (wrapped as any)[X_RAY_WRAPPED_FLAG] = true;
       return wrapped;
     } catch (err) {
       // don't break callers if wrapping fails
