@@ -7,6 +7,7 @@ import * as sfnTasks from "aws-cdk-lib/aws-stepfunctions-tasks";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as path from "path";
 import { createTracedLambda } from "./utils/lambda-utils";
+import { invokeLambdaTask } from "../src/common/aws/services/stepfunction-service";
 
 export interface IntegrationEventBusStackProps extends cdk.StackProps {}
 
@@ -68,15 +69,23 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
     );
 
     // Business state machine
-    const businessTask1 = new sfnTasks.LambdaInvoke(this, "BusinessTask1", {
-      lambdaFunction: businessLambda1,
-      outputPath: "$",
-    });
+    const businessTask1 = invokeLambdaTask(
+      this,
+      businessLambda1,
+      "BusinessTask1",
+      {
+        resultPath: "$",
+      },
+    );
 
-    const businessTask2 = new sfnTasks.LambdaInvoke(this, "BusinessTask2", {
-      lambdaFunction: businessLambda2,
-      outputPath: "$",
-    });
+    const businessTask2 = invokeLambdaTask(
+      this,
+      businessLambda2,
+      "BusinessTask2",
+      {
+        resultPath: "$",
+      },
+    );
 
     this.businessStateMachine = new stepfunctions.StateMachine(
       this,
@@ -101,11 +110,11 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
     );
 
     // Integration state machine which invokes controller lambda
-    const dispatchEventTask = new sfnTasks.LambdaInvoke(
+    const dispatchEventTask = invokeLambdaTask(
       this,
+      sfControllerLambda,
       "DispatchEventTask",
       {
-        lambdaFunction: sfControllerLambda,
         outputPath: "$",
       },
     );

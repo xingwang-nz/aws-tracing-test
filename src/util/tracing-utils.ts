@@ -1,7 +1,15 @@
 import { ulid } from "ulid";
 import { AsyncLocalStorage } from "async_hooks";
 import AWSXRay from "aws-xray-sdk-core";
-import { TracedEvent } from "../common/model/models";
+
+export type TracedEvent = {
+  traceId?: string;
+  detail?: {
+    traceId?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+};
 
 type XRaySegmentPartial = {
   trace_id?: string | null;
@@ -68,42 +76,37 @@ export class TraceId {
    * Extract trace ID from any traced event structure.
    *
    * Priority:
-   *   1. traceId (primary source)
+   *   1. traceId
    *   2. X-Ray context (env/segment)
    *   3. Generate new
    */
   static fromTracedEvent(tracedEvent: TracedEvent): string {
-    const explicitTraceId = tracedEvent?.detail?.traceId;
-    console.log(`explicitTraceId: ${explicitTraceId}`);
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
-    console.log(`${this.XRAY_ENV_VAR} from env: ${awsTraceFromEnv}`);
-
-    // First, check for explicit traceId
-    if (explicitTraceId) {
-      return explicitTraceId;
+    // explicit top-level traceId
+    if (tracedEvent.traceId) {
+      return tracedEvent.traceId;
     }
 
-    // Fallback to X-Ray environment
+    // explicit traceId in event detail
+    if (tracedEvent.detail?.traceId) {
+      return tracedEvent.detail.traceId;
+    }
+
+    // X-Ray trace ID from env
+    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
     if (awsTraceFromEnv) {
-      console.log(`X-Ray trace ID from env: ${awsTraceFromEnv}`);
       return awsTraceFromEnv;
     }
 
-    // Fallback to X-Ray segment
+    // X-Ray trace ID from segment:
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
       this.getCurrentSegment(),
     );
     if (awsTraceFromSegment) {
-      console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
       return awsTraceFromSegment;
     }
 
-    // Final fallback to generated ID
-    const generatedTraceId = this.generate();
-    console.log(
-      `No trace source found in event details, generated new trace ID: ${generatedTraceId}`,
-    );
-    return generatedTraceId;
+    // Generate new trace ID
+    return this.generate();
   }
 
   /**

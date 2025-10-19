@@ -54,7 +54,11 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
         });
 
-        await eventBridge.sendApiGatewayEvent(requestBody);
+        await eventBridge.sendTracingEvent({
+          source: "api-gateway",
+          detailType: "API Gateway Event",
+          detail: { ...requestBody, traceId: TracingContext.getTraceId() },
+        });
 
         // Additionally publish to SNS topic for tracing test if configured
         const snsTopicArn = process.env.TRACING_SNS_TOPIC_ARN;
@@ -62,32 +66,19 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           const baseSns = new SNSClient({});
           const sns: SNSClient = wrapClientWithXRay(baseSns);
 
-          // Build a message that includes the tracing context
-
-          // const traceHeader = xrayAvailability.isAvailable
-          //   ? xrayAvailability.envVar
-          //   : undefined;
-
           const publishInput = {
             TopicArn: snsTopicArn,
-            Message: JSON.stringify({ body: requestBody }),
-            // Message: JSON.stringify({ body: requestBody, traceHeader }),
-            // MessageAttributes: traceHeader
-            //   ? {
-            //       XAmznTraceId: {
-            //         DataType: "String",
-            //         StringValue: traceHeader,
-            //       },
-            //     }
-            //   : undefined,
+            Message: JSON.stringify({
+              ...requestBody,
+              traceId: TracingContext.getTraceId(),
+            }),
           };
 
           try {
-            console.info("Publishing to SNS topic", {
-              snsTopicArn,
-              // traceHeader,
+            logger.info({
+              message: `Publishing to SNS topic ${snsTopicArn}`,
             });
-            const pub = new PublishCommand(publishInput as any);
+            const pub = new PublishCommand(publishInput);
             const pubRes = await sns.send(pub);
             console.info("SNS publish result", { messageId: pubRes.MessageId });
           } catch (err) {
@@ -111,10 +102,10 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
       const response: APIGatewayProxyResult = {
         statusCode: 200,
         headers: {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Headers":
-            "Content-Type,X-Amz-Date,Authorization,X-Api-Key",
+          // "Content-Type": "application/json",
+          // "Access-Control-Allow-Origin": "*",
+          // "Access-Control-Allow-Headers":
+          //   "Content-Type,X-Amz-Date,Authorization,X-Api-Key",
           "X-Trace-Id": process.env._X_AMZN_TRACE_ID ?? "",
         },
         body: JSON.stringify(
@@ -128,10 +119,6 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
               path: event.path,
               body: requestBody,
               userAgent: getUserAgent(event),
-            },
-            processing: {
-              duration: processingDuration,
-              version: "1.0.0",
             },
             tracing: {
               traceId: TracingContext.getTraceId(),
