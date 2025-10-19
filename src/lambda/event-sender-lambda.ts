@@ -7,6 +7,10 @@ import { tracedApiGatewayHandler } from "../util/traced-api-gateway-handler";
 import { logger } from "../util/logger-demo";
 import { TracingContext } from "../util/tracing-utils";
 import { TracingEventBridge } from "../util/eventbridge-utils";
+import { TraceId } from "../util/tracing-utils";
+import { SNSClient, PublishCommand } from "@aws-sdk/client-sns";
+import AWSXRay from "aws-xray-sdk-core";
+import { wrapClientWithXRay } from "../util/xray-utils";
 
 type ParsedBody = Record<string, unknown>;
 
@@ -32,6 +36,8 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
     logger.info({ message: "Handler invoked" });
     logger.info({ message: "Event received:", data: event });
 
+    const xrayAvailability = TraceId.getXRayAvailability();
+
     try {
       const processingStart = Date.now();
 
@@ -48,16 +54,46 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
         });
 
-        // await eventBridge.sendApiGatewayEvent({
-        //   method: event.httpMethod,
-        //   path: event.path,
-        //   body: requestBody,
-        //   userAgent: getUserAgent(event),
-        //   requestId: event.requestContext.requestId,
-        //   headers: event.headers,
-        // });
-
         await eventBridge.sendApiGatewayEvent(requestBody);
+
+        // Additionally publish to SNS topic for tracing test if configured
+        const snsTopicArn = process.env.TRACING_SNS_TOPIC_ARN;
+        if (snsTopicArn) {
+          const baseSns = new SNSClient({});
+          const sns: SNSClient = wrapClientWithXRay(baseSns);
+
+          // Build a message that includes the tracing context
+
+          // const traceHeader = xrayAvailability.isAvailable
+          //   ? xrayAvailability.envVar
+          //   : undefined;
+
+          const publishInput = {
+            TopicArn: snsTopicArn,
+            Message: JSON.stringify({ body: requestBody }),
+            // Message: JSON.stringify({ body: requestBody, traceHeader }),
+            // MessageAttributes: traceHeader
+            //   ? {
+            //       XAmznTraceId: {
+            //         DataType: "String",
+            //         StringValue: traceHeader,
+            //       },
+            //     }
+            //   : undefined,
+          };
+
+          try {
+            console.info("Publishing to SNS topic", {
+              snsTopicArn,
+              // traceHeader,
+            });
+            const pub = new PublishCommand(publishInput as any);
+            const pubRes = await sns.send(pub);
+            console.info("SNS publish result", { messageId: pubRes.MessageId });
+          } catch (err) {
+            console.error("SNS publish failed", err);
+          }
+        }
 
         logger.info({
           message: "Event sent to EventBridge",
@@ -98,9 +134,8 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
               version: "1.0.0",
             },
             tracing: {
-              enabled: true,
               traceId: TracingContext.getTraceId(),
-              eventSent: !!eventBusName,
+              xRay: xrayAvailability.envVar,
             },
           },
           null,

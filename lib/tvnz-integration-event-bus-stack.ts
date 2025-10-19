@@ -101,9 +101,9 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
     );
 
     // Integration state machine which invokes controller lambda
-    const processEventTask = new sfnTasks.LambdaInvoke(
+    const dispatchEventTask = new sfnTasks.LambdaInvoke(
       this,
-      "ProcessEventTask",
+      "DispatchEventTask",
       {
         lambdaFunction: sfControllerLambda,
         outputPath: "$",
@@ -115,7 +115,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       "IntegrationStateMachine",
       {
         stateMachineName: "tvnz-test-integration",
-        definition: processEventTask,
+        definition: dispatchEventTask,
         tracingEnabled: true,
         logs: {
           destination: stepFunctionLogGroup,
