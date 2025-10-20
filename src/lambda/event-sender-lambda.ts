@@ -53,6 +53,10 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
         });
 
+        logger.info({
+          message: "Sending EventBridge event using TracingContext:",
+        });
+
         await eventBridge.sendEvent({
           source: "api-gateway",
           detailType: "API Gateway Event",
