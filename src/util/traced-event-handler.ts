@@ -1,76 +1,49 @@
 import { TracedEvent, TraceId, TracingContext } from "./tracing-utils";
 
 /**
- * Returns the event as-is since traceId is already in event.detail.traceId
- * (e.g, API Gateway events from eb-sf-agw-event.json)
+ * Extract a TracedEvent from an incoming payload.
  *
+ * Precedence:
+ * 1) Top-level `traceId` or `detail.traceId` — return input.
+ * 2) `event` wrapper with `traceId` — return `event`.
+ * 3) Fallback — return input.
  */
 export const standardEventExtractor = <EventType>(
-  event: EventType,
+  event: EventType
 ): TracedEvent => {
-  return event as unknown as TracedEvent;
+  const asTraced = event as unknown as TracedEvent;
+
+  // If top-level traceId or nested detail.traceId exists, return as-is
+  if (asTraced.traceId || asTraced.detail?.traceId) {
+    return asTraced;
+  }
+
+  // If wrapped under `event` (StepFunction wrappers prefer)
+  const possibleWrapped = (asTraced as any).event as TracedEvent | undefined;
+  if (possibleWrapped && typeof possibleWrapped === "object") {
+    if (possibleWrapped.traceId || possibleWrapped.detail?.traceId) {
+      return possibleWrapped;
+    }
+  }
+
+  return asTraced;
 };
 
 /**
- *  { event: { detail: { event: { detail: { ... } } } } }
+ * Higher order function to wrap Lambda function in Integration Step function with tracing context
  */
-export const s3EventExtractor = <EventType>(event: EventType): TracedEvent => {
-  const host = event as unknown as {
-    event?: unknown;
-    id?: unknown;
-  };
-
-  console.log("S3 Event Extractor - Processing event structure:", {
-    hasTopLevelEvent: !!host.event,
-    topLevelId: host.id,
-  });
-
-  // For S3 events, the structure is complex: { event: { detail: { event: { detail: { ... } } } } }
-  if (host.event && typeof host.event === "object") {
-    const nestedEvent = host.event as any;
-
-    console.log("S3 Event Extractor - Nested event:", {
-      hasDetail: !!nestedEvent.detail,
-      hasNestedEvent: !!nestedEvent.detail?.event,
-    });
-
-    // Check if this follows the S3 pattern with event.detail.event
-    if (nestedEvent.detail && nestedEvent.detail.event) {
-      const innerEvent = nestedEvent.detail.event;
-      console.log("S3 Event Extractor - Found inner event:", {
-        hasDetail: !!innerEvent.detail,
-        hasTraceId: !!innerEvent.detail?.traceId,
-      });
-      // Return the innermost event which should have the detail with traceId
-      return innerEvent as TracedEvent;
-    }
-
-    console.log("S3 Event Extractor - Using event directly");
-    return nestedEvent as TracedEvent;
-  }
-
-  // Fallback to treating the event as standard structure
-  console.log("S3 Event Extractor - Using fallback to standard structure");
-  return event as unknown as TracedEvent;
-};
-
-// Default to standard EventBridge extractor
-const defaultExtractor = standardEventExtractor;
-
-export const tracedEventHandler = <EventType extends any, ResultType = any>(
-  handler: (event: EventType, traceId: string) => Promise<ResultType>,
+export const tracedEventHandler = <EventType = any, ResultType = any>(
+  handler: (event: EventType) => Promise<ResultType>,
   options?: {
     extract?: (event: EventType) => TracedEvent;
-  },
+  }
 ): ((event: EventType) => Promise<ResultType>) => {
   return async (event: EventType): Promise<ResultType> => {
-    const extractor = options?.extract ?? defaultExtractor<EventType>;
+    const extractor = options?.extract ?? standardEventExtractor<EventType>;
     const tracedEvent = extractor(event);
-
     const traceId = TraceId.fromTracedEvent(tracedEvent);
-
     return TracingContext.withTraceId(traceId, async () => {
-      return handler(event, traceId);
+      return handler(event);
     });
   };
 };

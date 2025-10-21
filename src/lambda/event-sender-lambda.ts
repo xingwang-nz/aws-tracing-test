@@ -60,7 +60,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         await eventBridge.sendEvent({
           source: "api-gateway",
           detailType: "API Gateway Event",
-          detail: { ...requestBody, traceId: TracingContext.getTraceId() },
+          detail: requestBody,
         });
 
         // Additionally publish to SNS topic for tracing test if configured
@@ -129,7 +129,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
             },
           },
           null,
-          2,
+          2
         ),
       };
 
@@ -152,5 +152,5 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         }),
       };
     }
-  },
+  }
 );
