@@ -40,11 +40,15 @@ export class LoggerDemo {
       },
       timestamp: pino.stdTimeFunctions.isoTime,
       ...options?.pinoOptions,
-      // inject traceId from TracingContext into every log record when available
+
       mixin: () => {
         try {
+          // inject traceId from TracingContext into every log record when available
           const traceId = TracingContext.getTraceId();
-          return traceId ? { "trace.id": traceId } : {};
+          return {
+            ...(traceId ? { "trace.id": traceId } : {}),
+            timestamp: new Date().toISOString(),
+          };
         } catch (err) {
           // If TracingContext is not available for some reason, don't break logging
           return {};
