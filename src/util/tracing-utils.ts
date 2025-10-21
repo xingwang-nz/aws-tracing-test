@@ -16,8 +16,7 @@ type XRaySegmentPartial = {
 };
 
 export class TraceId {
-  private static readonly TRACE_ID_HEADER = "x-trace-id";
-  // private static readonly AWS_TRACE_HEADER = "X-Amzn-Trace-Id";
+  private static readonly TRACE_ID_HEADER = "X-Trace-Id";
   private static readonly XRAY_ENV_VAR = "_X_AMZN_TRACE_ID";
   private static readonly XRAY_TRACE_ID_REGEX =
     /(?:Root=)?1-([0-9a-f]{8})-([0-9a-f]{24})/i;
@@ -57,7 +56,7 @@ export class TraceId {
     }
 
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment(),
+      this.getCurrentSegment()
     );
 
     if (awsTraceFromSegment) {
@@ -67,7 +66,7 @@ export class TraceId {
 
     const generatedTraceId = this.generate();
     console.log(
-      `No trace source found, generated new trace ID: ${generatedTraceId}`,
+      `No trace source found, generated new trace ID: ${generatedTraceId}`
     );
     return generatedTraceId;
   }
@@ -99,7 +98,7 @@ export class TraceId {
 
     // X-Ray trace ID from segment:
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment(),
+      this.getCurrentSegment()
     );
     if (awsTraceFromSegment) {
       return awsTraceFromSegment;
@@ -120,13 +119,19 @@ export class TraceId {
 
   private static getHeader(
     headers: Record<string, string | undefined>,
-    headerName: string,
+    headerName: string
   ): string | undefined {
-    return headers[headerName] ?? headers[headerName.toLowerCase()];
+    const target = headerName.toLowerCase();
+    for (const key in headers) {
+      if (key.toLowerCase() === target) {
+        return headers[key];
+      }
+    }
+    return undefined;
   }
 
   private static extractRootTraceId(
-    traceValue?: string | null,
+    traceValue?: string | null
   ): string | undefined {
     if (!traceValue) {
       return undefined;
@@ -143,7 +148,7 @@ export class TraceId {
   static getRootTraceIdFromEnvironment(): string | undefined {
     return this.extractRootTraceId(
       process.env[this.XRAY_ENV_VAR] ??
-        process.env[this.XRAY_ENV_VAR.toLowerCase()],
+        process.env[this.XRAY_ENV_VAR.toLowerCase()]
     );
   }
 
@@ -190,7 +195,7 @@ export class TraceId {
   }
 
   static getRootTraceIdFromSegment(
-    segment?: XRaySegmentPartial | null,
+    segment?: XRaySegmentPartial | null
   ): string | undefined {
     return this.extractRootTraceId(segment?.trace_id ?? null);
   }
@@ -204,7 +209,7 @@ export class TraceId {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`,
+        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`
       );
       return undefined;
     }
@@ -242,7 +247,7 @@ export class TracingContext {
 
   static async withTraceId<T>(
     traceId: string,
-    fn: () => Promise<T>,
+    fn: () => Promise<T>
   ): Promise<T> {
     const current = this.getStore() || {};
     const next = { ...current, traceId };
