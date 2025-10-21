@@ -10,3 +10,10 @@ config.json
 .vscode
 **/.DS_Store
 tmp/
+
+idea/
+*.iml
+*.iws
+out/
+dist/
+build/

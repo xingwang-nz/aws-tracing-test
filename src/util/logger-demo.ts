@@ -44,7 +44,7 @@ export class LoggerDemo {
       mixin: () => {
         try {
           const traceId = TracingContext.getTraceId();
-          return traceId ? { traceId } : {};
+          return traceId ? { "trace.id": traceId } : {};
         } catch (err) {
           // If TracingContext is not available for some reason, don't break logging
           return {};
