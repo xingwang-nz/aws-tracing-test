@@ -1,6 +1,6 @@
-import { ulid } from "ulid";
 import { AsyncLocalStorage } from "async_hooks";
 import AWSXRay from "aws-xray-sdk-core";
+import crypto from "crypto";
 
 export type TracedEvent = {
   traceId?: string;
@@ -22,7 +22,13 @@ export class TraceId {
     /(?:Root=)?1-([0-9a-f]{8})-([0-9a-f]{24})/i;
 
   static generate(): string {
-    return ulid();
+    // X-Ray format: 1-<8 hex epoch seconds>-<24 hex random>
+    const epoch = Math.floor(Date.now() / 1000)
+      .toString(16)
+      .padStart(8, "0");
+    // 24 hex chars = 12 bytes
+    const random = crypto.randomBytes(12).toString("hex");
+    return `${epoch}${random}`;
   }
 
   /**
