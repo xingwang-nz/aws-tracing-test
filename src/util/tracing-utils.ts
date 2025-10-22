@@ -11,6 +11,11 @@ export type TracedEvent = {
   [key: string]: any;
 };
 
+type TraceContext = {
+  traceId: string;
+  xrayEnv?: string;
+};
+
 type XRaySegmentPartial = {
   trace_id?: string | null;
 };
@@ -21,7 +26,15 @@ export class TraceId {
   private static readonly XRAY_TRACE_ID_REGEX =
     /(?:Root=)?1-([0-9a-f]{8})-([0-9a-f]{24})/i;
 
-  static generate(): string {
+  private static getXRayEnv(): string | undefined {
+    // Prefer ALS context if present
+    return (
+      process.env[this.XRAY_ENV_VAR] ||
+      process.env[this.XRAY_ENV_VAR.toLowerCase()]
+    );
+  }
+
+  private static generate(): string {
     // X-Ray format: 1-<8 hex epoch seconds>-<24 hex random>
     const epoch = Math.floor(Date.now() / 1000)
       .toString(16)
@@ -37,44 +50,30 @@ export class TraceId {
    */
   static fromAPIGatewayEvent(event: {
     headers?: { [key: string]: string | undefined };
-  }): string {
+  }): TraceContext {
     const headers = event.headers || {};
 
+    const xrayEnv = this.getXRayEnv();
+
     const explicitTraceId = this.getHeader(headers, this.TRACE_ID_HEADER);
-    // const awsTraceHeader = this.getHeader(headers, this.AWS_TRACE_HEADER);
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
-
-    console.log(`Found explicit trace ID in headers: ${explicitTraceId}`);
-    // console.log(`${this.AWS_TRACE_HEADER} from header: ${awsTraceHeader}`);
-    console.log(`${this.XRAY_ENV_VAR} from env: ${awsTraceFromEnv}`);
-
     if (explicitTraceId) {
-      return explicitTraceId;
+      return { traceId: explicitTraceId, xrayEnv };
     }
 
-    // const awsTraceFromHeader = this.extractRootTraceId(awsTraceHeader);
-    // if (awsTraceFromHeader) {
-    //   return awsTraceFromHeader;
-    // }
-
+    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
     if (awsTraceFromEnv) {
-      return awsTraceFromEnv;
+      return { traceId: awsTraceFromEnv, xrayEnv };
     }
 
     const awsTraceFromSegment = this.getRootTraceIdFromSegment(
       this.getCurrentSegment()
     );
-
     if (awsTraceFromSegment) {
-      console.log(`X-Ray trace ID from segment: ${awsTraceFromSegment}`);
-      return awsTraceFromSegment;
+      return { traceId: awsTraceFromSegment, xrayEnv };
     }
 
-    const generatedTraceId = this.generate();
-    console.log(
-      `No trace source found, generated new trace ID: ${generatedTraceId}`
-    );
-    return generatedTraceId;
+    // fallback: generate new trace ID
+    return { traceId: this.generate(), xrayEnv };
   }
 
   /**
@@ -85,21 +84,26 @@ export class TraceId {
    *   2. X-Ray context (env/segment)
    *   3. Generate new
    */
-  static fromTracedEvent(tracedEvent: TracedEvent): string {
+  static fromTracedEvent(tracedEvent: TracedEvent): TraceContext {
+    const xrayEnv = this.getXRayEnv();
+
     // explicit top-level traceId
     if (tracedEvent.traceId) {
-      return tracedEvent.traceId;
+      return { traceId: tracedEvent.traceId, xrayEnv };
     }
 
     // explicit traceId in event detail
     if (tracedEvent.detail?.traceId) {
-      return tracedEvent.detail.traceId;
+      return {
+        traceId: tracedEvent.detail.traceId,
+        xrayEnv,
+      };
     }
 
     // X-Ray trace ID from env
     const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
     if (awsTraceFromEnv) {
-      return awsTraceFromEnv;
+      return { traceId: awsTraceFromEnv, xrayEnv };
     }
 
     // X-Ray trace ID from segment:
@@ -107,11 +111,11 @@ export class TraceId {
       this.getCurrentSegment()
     );
     if (awsTraceFromSegment) {
-      return awsTraceFromSegment;
+      return { traceId: awsTraceFromSegment, xrayEnv };
     }
 
     // Generate new trace ID
-    return this.generate();
+    return { traceId: this.generate(), xrayEnv };
   }
 
   /**
@@ -128,6 +132,7 @@ export class TraceId {
     headerName: string
   ): string | undefined {
     const target = headerName.toLowerCase();
+    // case in
     for (const key in headers) {
       if (key.toLowerCase() === target) {
         return headers[key];
@@ -152,55 +157,30 @@ export class TraceId {
   }
 
   static getRootTraceIdFromEnvironment(): string | undefined {
-    return this.extractRootTraceId(
-      process.env[this.XRAY_ENV_VAR] ??
-        process.env[this.XRAY_ENV_VAR.toLowerCase()]
-    );
+    return this.extractRootTraceId(this.getXRayEnv());
   }
 
-  /**
-   * Check if X-Ray is available including X-Ray segment and environment variable
-   */
   static getXRayAvailability(): {
     isAvailable: boolean;
-    hasSegment: boolean;
-    hasEnvVar: boolean;
-    segment?: any;
     envVar?: string;
   } {
-    let hasSegment = false;
-    let hasEnvVar = false;
-    let segment: any = undefined;
-    let envVar: string | undefined = undefined;
-
-    // First check for X-Ray environment variable (present when X-Ray is enabled)
-    envVar =
-      process.env._X_AMZN_TRACE_ID ??
-      process.env[this.XRAY_ENV_VAR.toLowerCase()];
-    hasEnvVar = !!envVar;
-
-    // Only attempt to access AWSXRay.getSegment when X-Ray is active
-    if (hasEnvVar) {
-      try {
-        segment = AWSXRay.getSegment();
-        hasSegment = !!segment;
-      } catch (error) {
-        // No segment available or SDK not configured
-      }
+    // Prefer ALS context first, then fall back to process.env
+    const contextEnv = TracingContext.getXRayEnv();
+    if (contextEnv) {
+      return {
+        isAvailable: true,
+        envVar: contextEnv,
+      };
     }
 
-    const isAvailable = hasSegment || hasEnvVar;
-
+    const envVar = this.getXRayEnv();
     return {
-      isAvailable,
-      hasSegment,
-      hasEnvVar,
-      segment,
+      isAvailable: !!envVar,
       envVar,
     };
   }
 
-  static getRootTraceIdFromSegment(
+  private static getRootTraceIdFromSegment(
     segment?: XRaySegmentPartial | null
   ): string | undefined {
     return this.extractRootTraceId(segment?.trace_id ?? null);
@@ -226,37 +206,26 @@ export class TraceId {
  * Context utility to maintain traceId in execution context
  */
 export class TracingContext {
-  private static als = new AsyncLocalStorage<Record<string, string>>();
+  private static als = new AsyncLocalStorage<TraceContext>();
 
-  private static getStore(): Record<string, string> | undefined {
+  private static getStore(): TraceContext | undefined {
     return this.als.getStore();
   }
 
-  static setTraceId(traceId: string): void {
-    const store = this.getStore();
-    if (store) {
-      store.traceId = traceId;
-    } else {
-      // create a new store for the current execution
-      this.als.enterWith({ traceId });
-    }
-  }
-
   static getTraceId(): string {
-    const existingTraceId = this.getStore()?.traceId;
-    return existingTraceId || "";
+    return this.getStore()?.traceId || "";
   }
 
-  static clear(): void {
-    (this as any).als = new AsyncLocalStorage<Record<string, string>>();
+  static getXRayEnv(): string | undefined {
+    return this.getStore()?.xrayEnv;
   }
 
-  static async withTraceId<T>(
-    traceId: string,
+  static async withTraceContext<T>(
+    ctx: TraceContext,
     fn: () => Promise<T>
   ): Promise<T> {
     const current = this.getStore() || {};
-    const next = { ...current, traceId };
+    const next = { ...current, ...ctx };
     return await this.als.run(next, fn);
   }
 }
