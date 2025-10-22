@@ -109,7 +109,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
           // "Access-Control-Allow-Origin": "*",
           // "Access-Control-Allow-Headers":
           //   "Content-Type,X-Amz-Date,Authorization,X-Api-Key",
-          "X-Trace-Id": process.env._X_AMZN_TRACE_ID ?? "",
+          _X_AMZN_TRACE_ID: process.env._X_AMZN_TRACE_ID ?? "",
         },
         body: JSON.stringify(
           {

@@ -13,9 +13,9 @@ export const tracedApiGatewayHandler = (
   return async (
     event: APIGatewayProxyEvent
   ): Promise<APIGatewayProxyResult> => {
-    const traceId = TraceId.fromAPIGatewayEvent(event);
+    const traceContext = TraceId.fromAPIGatewayEvent(event);
     // Run the handler inside the tracing context
-    const result = await TracingContext.withTraceId(traceId, () =>
+    const result = await TracingContext.withTraceContext(traceContext, () =>
       handler(event)
     );
 
@@ -23,7 +23,7 @@ export const tracedApiGatewayHandler = (
       ...result,
       headers: {
         ...(result.headers ?? {}),
-        ...TraceId.toHttpHeaders(traceId),
+        ...TraceId.toHttpHeaders(traceContext.traceId),
       },
     } as APIGatewayProxyResult;
   };

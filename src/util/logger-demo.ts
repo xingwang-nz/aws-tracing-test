@@ -43,10 +43,15 @@ export class LoggerDemo {
 
       mixin: () => {
         try {
-          // inject traceId from TracingContext into every log record when available
-          const traceId = TracingContext.getTraceId();
+          // inject traceId, segment id, and parent id from TracingContext into every log record when available
+          const ctx = TracingContext.getTraceContext();
+          const traceId = ctx.traceId;
+          const spanId = ctx.spanId;
+          const parentId = ctx.parentId;
           return {
             ...(traceId ? { "trace.id": traceId } : {}),
+            ...(spanId ? { id: spanId } : {}),
+            ...(parentId ? { "parent.id": parentId } : {}),
             timestamp: new Date().toISOString(),
           };
         } catch (err) {
