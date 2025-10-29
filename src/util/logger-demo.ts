@@ -45,8 +45,10 @@ export class LoggerDemo {
         try {
           // inject traceId from TracingContext into every log record when available
           const traceId = TracingContext.getTraceId();
+          const spanId = TracingContext.getSpanId();
           return {
             ...(traceId ? { "trace.id": traceId } : {}),
+            ...(spanId ? { id: spanId } : {}),
             timestamp: new Date().toISOString(),
           };
         } catch (err) {

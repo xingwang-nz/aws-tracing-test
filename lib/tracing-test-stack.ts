@@ -2,10 +2,11 @@ import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as events from "aws-cdk-lib/aws-events";
 import { Construct } from "constructs";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "path";
-import { createTracedLambda } from "./utils/lambda-utils";
+import { createTracedLambda, createBasicLambda } from "./utils/lambda-utils";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 
 export interface TracingTestStackProps extends cdk.StackProps {
@@ -31,10 +32,10 @@ export class TracingTestStack extends cdk.Stack {
       description: "API Gateway with X-Ray tracing for testing data flow",
       deployOptions: {
         stageName: "dev",
-        tracingEnabled: true,
+        tracingEnabled: false,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
-        metricsEnabled: true,
+        // dataTraceEnabled: false,
+        // metricsEnabled: true,
       },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -60,7 +61,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         requestTemplates: { "application/json": '{ "statusCode": "200" }' },
         proxy: true,
-      },
+      }
     );
 
     // Add POST method to /api/test-tracing
@@ -115,8 +116,8 @@ export class TracingTestStack extends cdk.Stack {
         httpApigateway.MappingValue.custom(
           `/${api.deploymentStage.stageName}/api/${
             httpApigateway.MappingValue.requestPathParam("proxy").value
-          }`,
-        ),
+          }`
+        )
       );
 
     const urlIntegration = new integrations.HttpUrlIntegration(
@@ -125,7 +126,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         method: httpApigateway.HttpMethod.ANY,
         parameterMapping,
-      },
+      }
     );
 
     httpApi.addRoutes({

@@ -35,11 +35,9 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
     logger.info({ message: "Handler invoked" });
     logger.info({ message: "Event received:", data: event });
 
-    const xrayAvailability = TraceId.getXRayAvailability();
+    const xrayAvailability = TraceId.getXRayTracingAvailability();
 
     try {
-      const processingStart = Date.now();
-
       const requestBody = parseRequestBody(event.body ?? null);
 
       // Send event to EventBridge with trace propagation
@@ -50,7 +48,7 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
         // TracingContext.getTraceId() automatically handles trace ID generation
         console.log("Sending EventBridge event using TracingContext:", {
           traceId: TracingContext.getTraceId(),
-          xrayEnvVar: process.env._X_AMZN_TRACE_ID ? "present" : "missing",
+          xrayEnvVar: xrayAvailability.isTracingEnabled ? "present" : "missing",
         });
 
         logger.info({
@@ -99,8 +97,6 @@ export const handler: APIGatewayProxyHandler = tracedApiGatewayHandler(
       } else {
         logger.warn({ message: "EVENT_BUS_NAME not configured" });
       }
-
-      const processingDuration = Date.now() - processingStart;
 
       const response: APIGatewayProxyResult = {
         statusCode: 200,
