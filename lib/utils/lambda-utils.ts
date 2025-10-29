@@ -57,7 +57,7 @@ export interface TracedLambdaOptions {
  */
 function createLambdaFunction(
   scope: Construct,
-  options: TracedLambdaOptions,
+  options: TracedLambdaOptions
 ): NodejsFunction {
   const {
     id,
@@ -67,7 +67,7 @@ function createLambdaFunction(
     memorySize = 256,
     timeout = cdk.Duration.seconds(30),
     logRetention = logs.RetentionDays.ONE_WEEK,
-    enableTracing = true,
+    enableTracing = false,
     role,
   } = options;
 
@@ -103,11 +103,11 @@ function createLambdaFunction(
  */
 export function createTracedLambda(
   scope: Construct,
-  options: TracedLambdaOptions,
+  options: TracedLambdaOptions
 ): NodejsFunction {
   return createLambdaFunction(scope, {
     ...options,
-    enableTracing: true,
+    // enableTracing: true,
   });
 }
 
@@ -116,7 +116,7 @@ export function createTracedLambda(
  */
 export function createBasicLambda(
   scope: Construct,
-  options: Omit<TracedLambdaOptions, "enableTracing">,
+  options: Omit<TracedLambdaOptions, "enableTracing">
 ): NodejsFunction {
   // Create IAM role with AWS managed basic execution role if not provided
   const lambdaRole =
@@ -125,7 +125,7 @@ export function createBasicLambda(
       assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
       managedPolicies: [
         iam.ManagedPolicy.fromAwsManagedPolicyName(
-          "service-role/AWSLambdaBasicExecutionRole",
+          "service-role/AWSLambdaBasicExecutionRole"
         ),
       ],
       description: `Lambda execution role for ${options.functionName}`,
@@ -133,7 +133,7 @@ export function createBasicLambda(
 
   return createLambdaFunction(scope, {
     ...options,
-    enableTracing: false,
+    // enableTracing: false,
     role: lambdaRole,
   });
 }

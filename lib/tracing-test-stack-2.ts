@@ -28,7 +28,7 @@ export class TvnzTracingTestStack2 extends cdk.Stack {
       restApiName: "tvnz-test-integration-2-rest-api",
       deployOptions: {
         stageName: "dev",
-        tracingEnabled: true,
+        tracingEnabled: false,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
         // Enable full request/response data logging to CloudWatch so the
         // integration payloads (and headers) are visible for debugging.
@@ -54,14 +54,14 @@ export class TvnzTracingTestStack2 extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ["events:PutEvents"],
         resources: [props.eventBus.eventBusArn],
-      }),
+      })
     );
 
     apiGwRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ["xray:PutTraceSegments", "xray:PutTelemetryRecords"],
         resources: ["*"],
-      }),
+      })
     );
 
     // Base integration options similar to your snippet

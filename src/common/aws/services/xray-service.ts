@@ -17,10 +17,11 @@ export const XrayService = {
    */
   wrapClientWithXRay: <T extends AwsV3Client>(
     client: T,
-    options?: { force?: boolean },
+    options?: { force?: boolean }
   ): T => {
-    const availability = TraceId.getXRayAvailability().isAvailable;
+    const availability = TraceId.getXRayTracingAvailability().isTracingEnabled;
     if (!availability && !options?.force) {
+      console.log("X-Ray not available, returning original client");
       return client;
     }
 
