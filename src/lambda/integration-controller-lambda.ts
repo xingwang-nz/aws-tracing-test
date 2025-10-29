@@ -60,7 +60,7 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
       const contextTraceId = TracingContext.getTraceId();
 
       // Get X-Ray availability information using centralized utility
-      const xrayAvailability = TraceId.getXRayAvailability();
+      const xrayAvailability = TraceId.getXRayTracingAvailability();
 
       const result: StepFunctionControllerResult = {
         tracing: {
@@ -97,7 +97,7 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
 
           // const startRes = await sfnClient.send(startCmd);
           const startRes = await XrayService.wrapClientWithXRay(sfnClient).send(
-            startCmd,
+            startCmd
           );
           logger.info({
             message: "Started business state machine",
@@ -122,5 +122,5 @@ export const handler: Handler<EventBridgeEvent, StepFunctionControllerResult> =
       });
 
       return result;
-    },
+    }
   );

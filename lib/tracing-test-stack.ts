@@ -31,10 +31,10 @@ export class TracingTestStack extends cdk.Stack {
       description: "API Gateway with X-Ray tracing for testing data flow",
       deployOptions: {
         stageName: "dev",
-        tracingEnabled: true,
+        tracingEnabled: false,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        dataTraceEnabled: true,
-        metricsEnabled: true,
+        // dataTraceEnabled: false,
+        // metricsEnabled: true,
       },
       defaultCorsPreflightOptions: {
         allowOrigins: apigateway.Cors.ALL_ORIGINS,
@@ -60,7 +60,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         requestTemplates: { "application/json": '{ "statusCode": "200" }' },
         proxy: true,
-      },
+      }
     );
 
     // Add POST method to /api/test-tracing
@@ -115,8 +115,8 @@ export class TracingTestStack extends cdk.Stack {
         httpApigateway.MappingValue.custom(
           `/${api.deploymentStage.stageName}/api/${
             httpApigateway.MappingValue.requestPathParam("proxy").value
-          }`,
-        ),
+          }`
+        )
       );
 
     const urlIntegration = new integrations.HttpUrlIntegration(
@@ -125,7 +125,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         method: httpApigateway.HttpMethod.ANY,
         parameterMapping,
-      },
+      }
     );
 
     httpApi.addRoutes({

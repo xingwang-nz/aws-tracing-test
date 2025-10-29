@@ -12,7 +12,7 @@ export const handler: Handler<TracedEvent, TracedEvent> = tracedEventHandler(
 
     const receivedTraceId = event.traceId;
     const contextTraceId = TracingContext.getTraceId();
-    const xrayAvailability = TraceId.getXRayAvailability();
+    const xrayAvailability = TraceId.getXRayTracingAvailability();
 
     logger.info({
       message: "tracing info in business Lambda-1:",
@@ -25,9 +25,9 @@ export const handler: Handler<TracedEvent, TracedEvent> = tracedEventHandler(
 
     logger.info({
       message: "TraceId.getXRayAvailability",
-      data: { xrayAvailability: TraceId.getXRayAvailability().envVar },
+      data: { xrayAvailability: TraceId.getXRayTracingAvailability().envVar },
     });
 
     return event;
-  },
+  }
 );
