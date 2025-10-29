@@ -80,8 +80,8 @@ export class TvnzEventSenderStack extends cdk.Stack {
     // Create a subscription filter on the EventSender Lambda's log group to
     // forward all logs to the ingestion lambda (imported or local).
     new logs.SubscriptionFilter(this, "EventSenderLogSubscription", {
-      filterName: "mock-nr-ingestion-subscription",
-      logGroup: this.eventSenderLambda.logGroup as logs.ILogGroup,
+      filterName: `${ingestionFunction.functionName}-subscription`,
+      logGroup: this.eventSenderLambda.logGroup,
       destination: new destinations.LambdaDestination(ingestionFunction),
       filterPattern: logs.FilterPattern.allEvents(),
     });
