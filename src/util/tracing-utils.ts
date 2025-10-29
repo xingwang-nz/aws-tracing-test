@@ -13,6 +13,7 @@ export type TracedEvent = {
 
 type TraceContext = {
   traceId: string;
+  spanId?: string;
   xrayEnv?: string;
 };
 
@@ -35,7 +36,7 @@ export class TraceId {
   }
 
   private static generate(): string {
-    // X-Ray format: 1-<8 hex epoch seconds>-<24 hex random>
+    console.log("[TraceId] Generating new trace ID");
     const epoch = Math.floor(Date.now() / 1000)
       .toString(16)
       .padStart(8, "0");
@@ -52,28 +53,39 @@ export class TraceId {
     headers?: { [key: string]: string | undefined };
   }): TraceContext {
     const headers = event.headers || {};
-
-    const xrayEnv = this.getXRayEnv();
+    const xrayAvailability = this.getXRayTracingAvailability();
+    const xrayEnv = xrayAvailability.envVar;
+    const segment = this.getCurrentSegment();
+    const spanId = this.getSpanIdFromXRay(xrayEnv, segment);
 
     const explicitTraceId = this.getHeader(headers, this.TRACE_ID_HEADER);
     if (explicitTraceId) {
-      return { traceId: explicitTraceId, xrayEnv };
+      console.log(
+        `[TraceId] Extracted trace ID from header: ${explicitTraceId}`
+      );
+      return { traceId: explicitTraceId, spanId, xrayEnv };
     }
 
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
-    if (awsTraceFromEnv) {
-      return { traceId: awsTraceFromEnv, xrayEnv };
-    }
-
-    const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment()
-    );
-    if (awsTraceFromSegment) {
-      return { traceId: awsTraceFromSegment, xrayEnv };
+    // Only use X-Ray env/segment if real tracing is enabled (segment.trace_id)
+    if (xrayAvailability.isTracingEnabled) {
+      const awsTraceFromEnv = this.extractRootTraceId(xrayEnv);
+      if (awsTraceFromEnv) {
+        console.log(
+          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`
+        );
+        return { traceId: awsTraceFromEnv, spanId, xrayEnv };
+      }
+      const awsTraceFromSegment = this.getRootTraceIdFromSegment(segment);
+      if (awsTraceFromSegment) {
+        console.log(
+          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`
+        );
+        return { traceId: awsTraceFromSegment, spanId, xrayEnv };
+      }
     }
 
     // fallback: generate new trace ID
-    return { traceId: this.generate(), xrayEnv };
+    return { traceId: this.generate(), spanId, xrayEnv };
   }
 
   /**
@@ -86,36 +98,72 @@ export class TraceId {
    */
   static fromTracedEvent(tracedEvent: TracedEvent): TraceContext {
     const xrayEnv = this.getXRayEnv();
+    const segment = this.getCurrentSegment();
+    const spanId = this.getSpanIdFromXRay(xrayEnv, segment);
 
     // explicit top-level traceId
     if (tracedEvent.traceId) {
-      return { traceId: tracedEvent.traceId, xrayEnv };
+      console.log("[TraceId] Extracted trace ID from traced event:", {
+        traceId: tracedEvent.traceId,
+      });
+      return { traceId: tracedEvent.traceId, spanId, xrayEnv };
     }
 
     // explicit traceId in event detail
     if (tracedEvent.detail?.traceId) {
+      console.log(
+        `[TraceId] Extracted trace ID from traced event detail: ${tracedEvent.detail.traceId}`
+      );
       return {
         traceId: tracedEvent.detail.traceId,
+        spanId,
         xrayEnv,
       };
     }
 
-    // X-Ray trace ID from env
-    const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
-    if (awsTraceFromEnv) {
-      return { traceId: awsTraceFromEnv, xrayEnv };
-    }
+    const xrayAvailability = this.getXRayTracingAvailability();
+    if (xrayAvailability.isTracingEnabled) {
+      // X-Ray trace ID from env
+      const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
+      if (awsTraceFromEnv) {
+        console.log(
+          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`
+        );
+        return { traceId: awsTraceFromEnv, spanId, xrayEnv };
+      }
 
-    // X-Ray trace ID from segment:
-    const awsTraceFromSegment = this.getRootTraceIdFromSegment(
-      this.getCurrentSegment()
-    );
-    if (awsTraceFromSegment) {
-      return { traceId: awsTraceFromSegment, xrayEnv };
+      // X-Ray trace ID from segment:
+      const awsTraceFromSegment = this.getRootTraceIdFromSegment(segment);
+      if (awsTraceFromSegment) {
+        console.log(
+          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`
+        );
+        return { traceId: awsTraceFromSegment, spanId, xrayEnv };
+      }
     }
-
     // Generate new trace ID
-    return { traceId: this.generate(), xrayEnv };
+    return { traceId: this.generate(), spanId, xrayEnv };
+  }
+  /**
+   * Extract spanId from X-Ray context.
+   * If xrayEnv is present, use Parent= value. Otherwise, fallback to segment.id
+   */
+  private static getSpanIdFromXRay(
+    xrayEnv?: string,
+    segment?: any
+  ): string | undefined {
+    if (xrayEnv) {
+      // X-Ray env format: Root=...;Parent=...;Sampled=...
+      const parentMatch = xrayEnv.match(/Parent=([\w-]+)/);
+      if (parentMatch) {
+        return parentMatch[1];
+      }
+    }
+    // fallback: segment.id
+    if (segment && typeof segment.id === "string") {
+      return segment.id;
+    }
+    return undefined;
   }
 
   /**
@@ -160,23 +208,28 @@ export class TraceId {
     return this.extractRootTraceId(this.getXRayEnv());
   }
 
-  static getXRayAvailability(): {
-    isAvailable: boolean;
+  static getXRayTracingAvailability(): {
+    isTracingEnabled: boolean;
     envVar?: string;
   } {
-    // Prefer ALS context first, then fall back to process.env
     const contextEnv = TracingContext.getXRayEnv();
-    if (contextEnv) {
-      return {
-        isAvailable: true,
-        envVar: contextEnv,
-      };
+    const xrayEnv = contextEnv ?? this.getXRayEnv();
+
+    // If there's no xray env value, no x-ray propagation.
+    if (!xrayEnv) {
+      return { isTracingEnabled: false };
     }
 
-    const envVar = this.getXRayEnv();
+    // Check Sampled flag (Sampled=1)
+    const sampledMatch = xrayEnv.match(/Sampled=(\d)/);
+    const isSampled = sampledMatch?.[1] === "1";
+
+    // Check that a valid Root trace id exists in the env value
+    const hasRoot = !!this.extractRootTraceId(xrayEnv);
+
     return {
-      isAvailable: !!envVar,
-      envVar,
+      isTracingEnabled: Boolean(isSampled && hasRoot),
+      envVar: xrayEnv,
     };
   }
 
@@ -214,6 +267,10 @@ export class TracingContext {
 
   static getTraceId(): string {
     return this.getStore()?.traceId || "";
+  }
+
+  static getSpanId(): string | undefined {
+    return this.getStore()?.spanId;
   }
 
   static getXRayEnv(): string | undefined {
