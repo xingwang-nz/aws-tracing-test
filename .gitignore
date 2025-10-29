@@ -17,3 +17,5 @@ idea/
 out/
 dist/
 build/
+
+.idea/
