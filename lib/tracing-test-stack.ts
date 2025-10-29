@@ -2,10 +2,11 @@ import * as cdk from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as events from "aws-cdk-lib/aws-events";
 import { Construct } from "constructs";
+import * as iam from "aws-cdk-lib/aws-iam";
 import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "path";
-import { createTracedLambda } from "./utils/lambda-utils";
+import { createTracedLambda, createBasicLambda } from "./utils/lambda-utils";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 
 export interface TracingTestStackProps extends cdk.StackProps {
