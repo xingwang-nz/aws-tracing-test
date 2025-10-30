@@ -28,7 +28,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
       ingestionFunction = lambda.Function.fromFunctionArn(
         this,
         "ImportedMockNrIngest",
-        props.mockNrIngestionLambdaArn
+        props.mockNrIngestionLambdaArn,
       );
       // Imported function is expected to already allow invocation by
       // CloudWatch Logs (no extra permission added here).
@@ -41,7 +41,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
           "..",
           "src",
           "lambda",
-          "mock-nr-ingestion-lambda.ts"
+          "mock-nr-ingestion-lambda.ts",
         ),
         memorySize: 256,
         timeout: cdk.Duration.seconds(10),
@@ -70,21 +70,25 @@ export class TvnzEventSenderStack extends cdk.Stack {
 
     this.eventSenderLambda.addEnvironment(
       "EVENT_BUS_NAME",
-      props.eventBus.eventBusName
+      props.eventBus.eventBusName,
     );
 
     this.eventSenderLambda.role?.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess")
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess"),
     );
 
     // Create a subscription filter on the EventSender Lambda's log group to
     // forward all logs to the ingestion lambda (imported or local).
-    new logs.SubscriptionFilter(this, "EventSenderLogSubscription", {
-      filterName: `${ingestionFunction.functionName}-subscription`,
-      logGroup: this.eventSenderLambda.logGroup,
-      destination: new destinations.LambdaDestination(ingestionFunction),
-      filterPattern: logs.FilterPattern.allEvents(),
-    });
+    new logs.SubscriptionFilter(
+      this,
+      `${this.eventSenderLambda.logGroup.node.id}-nr-subscription`,
+      {
+        filterName: `${ingestionFunction.functionName}`,
+        logGroup: this.eventSenderLambda.logGroup,
+        destination: new destinations.LambdaDestination(ingestionFunction),
+        filterPattern: logs.FilterPattern.allEvents(),
+      },
+    );
 
     // Create an SNS topic and a subscription lambda that logs X-Ray info
     const tracingTopic = new sns.Topic(this, "TvnzTestTracingTopic", {
@@ -96,20 +100,20 @@ export class TvnzEventSenderStack extends cdk.Stack {
       functionName: "tvnz-sns-subscription-lambda",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/sns-subscription-lambda.ts"
+        "../src/lambda/sns-subscription-lambda.ts",
       ),
     });
 
     // Subscribe the lambda to the topic
     tracingTopic.addSubscription(
-      new subscriptions.LambdaSubscription(snsSubLambda)
+      new subscriptions.LambdaSubscription(snsSubLambda),
     );
 
     // Grant publish permission to the event sender lambda and set env var
     tracingTopic.grantPublish(this.eventSenderLambda);
     this.eventSenderLambda.addEnvironment(
       "TRACING_SNS_TOPIC_ARN",
-      tracingTopic.topicArn
+      tracingTopic.topicArn,
     );
   }
 }

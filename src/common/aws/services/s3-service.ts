@@ -119,7 +119,7 @@ export const S3Service = {
             id,
             destinationBucketArn,
             destinationAccountId,
-            prefix = "",
+            prefix,
             enableRTC = true,
             rtcMinutes = 15,
             enableDeleteMarkerReplication = true,
@@ -156,7 +156,7 @@ export const S3Service = {
           return {
             id,
             status: "Enabled",
-            filter: prefix ? { prefix } : undefined,
+            filter: { prefix },
             priority,
             destination,
             deleteMarkerReplication: {
