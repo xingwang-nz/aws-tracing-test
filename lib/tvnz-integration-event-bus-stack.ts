@@ -19,7 +19,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
   constructor(
     scope: Construct,
     id: string,
-    props?: IntegrationEventBusStackProps
+    props?: IntegrationEventBusStackProps,
   ) {
     super(scope, id, props);
 
@@ -34,7 +34,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       functionName: "tvnz-test-integration-controller",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/integration-controller-lambda.ts"
+        "../src/lambda/integration-controller-lambda.ts",
       ),
     });
 
@@ -44,7 +44,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       functionName: "tvnz-test-business-1",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/business/business-lambda-1.ts"
+        "../src/lambda/business/business-lambda-1.ts",
       ),
     });
 
@@ -53,7 +53,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       functionName: "tvnz-test-business-2",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/business/business-lambda-2.ts"
+        "../src/lambda/business/business-lambda-2.ts",
       ),
     });
 
@@ -65,7 +65,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
         logGroupName: "/aws/stepfunctions/tvnz-test-state-machine-lg",
         retention: logs.RetentionDays.ONE_WEEK,
         removalPolicy: cdk.RemovalPolicy.DESTROY,
-      }
+      },
     );
 
     // Business state machine
@@ -75,7 +75,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       "BusinessTask1",
       {
         resultPath: "$",
-      }
+      },
     );
 
     const businessTask2 = invokeLambdaTask(
@@ -84,7 +84,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       "BusinessTask2",
       {
         resultPath: "$",
-      }
+      },
     );
 
     this.businessStateMachine = new stepfunctions.StateMachine(
@@ -99,14 +99,14 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
           level: stepfunctions.LogLevel.ALL,
           includeExecutionData: true,
         },
-      }
+      },
     );
 
     // Allow controller Lambda to start the business state machine
     this.businessStateMachine.grantStartExecution(sfControllerLambda);
     sfControllerLambda.addEnvironment(
       "BUSINESS_SFN_ARN",
-      this.businessStateMachine.stateMachineArn
+      this.businessStateMachine.stateMachineArn,
     );
 
     // Integration state machine which invokes controller lambda
@@ -116,7 +116,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
       "DispatchEventTask",
       {
         outputPath: "$",
-      }
+      },
     );
 
     this.integrationStateMachine = new stepfunctions.StateMachine(
@@ -131,7 +131,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
           level: stepfunctions.LogLevel.ALL,
           includeExecutionData: true,
         },
-      }
+      },
     );
 
     // EventBridge rule to trigger Integration state machine
@@ -146,7 +146,7 @@ export class TvnzIntegrationEventBusStack extends cdk.Stack {
     integrationEventRule.addTarget(
       new targets.SfnStateMachine(this.integrationStateMachine, {
         input: events.RuleTargetInput.fromEventPath("$"),
-      })
+      }),
     );
   }
 }

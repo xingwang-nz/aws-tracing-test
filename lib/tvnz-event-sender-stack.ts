@@ -47,16 +47,23 @@ export class TvnzEventSenderStack extends cdk.Stack {
         timeout: cdk.Duration.seconds(10),
       });
 
-      // Allow CloudWatch Logs service from this account to invoke the function.
-      mockNrLambda.addPermission("AllowCloudWatchLogsInvoke", {
-        principal: new iam.ServicePrincipal("logs.amazonaws.com"),
-        action: "lambda:InvokeFunction",
-        // Restrict to same account — allows any Log Group in this account
-        sourceAccount: this.account,
-      });
-
       ingestionFunction = mockNrLambda;
     }
+
+    // Ensure CloudWatch Logs in this account can invoke the ingestion function.
+    // Create a low-level Lambda permission resource so we control the exact
+    // statement and avoid the higher-level helper mutating the function's
+    // resource policy unexpectedly. This grants the Logs service principal
+    // permission scoped to this account (so any Log Group in the account may invoke).
+    new lambda.CfnPermission(this, "AllowCloudWatchLogsInvoke", {
+      functionName: ingestionFunction.functionArn,
+      action: "lambda:InvokeFunction",
+      principal: "logs.amazonaws.com",
+      // Restrict to any CloudWatch Log Group ARN in this account/region.
+      // This will synthesize a resource policy condition using ArnLike
+      // for SourceArn (e.g. arn:aws:logs:ap-southeast-2:123456789:log-group:*)
+      sourceArn: `arn:aws:logs:${this.region}:${this.account}:log-group:*`,
+    });
 
     this.eventSenderLambda = createTracedLambda(this, {
       id: "EventSenderLambda",
@@ -77,16 +84,17 @@ export class TvnzEventSenderStack extends cdk.Stack {
       iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess"),
     );
 
-    // Create a subscription filter on the EventSender Lambda's log group to
-    // forward all logs to the ingestion lambda (imported or local).
-    new logs.SubscriptionFilter(
+    // Create a low-level CloudFormation subscription filter that targets the
+    // ingestion function without CDK adding a permission to the function's
+    // resource policy. This assumes the target function already allows
+    // CloudWatch Logs to invoke it (resource-based policy managed elsewhere).
+    new logs.CfnSubscriptionFilter(
       this,
-      `${this.eventSenderLambda.logGroup.node.id}-nr-subscription`,
+      `${this.eventSenderLambda.logGroup.node.id}-cfn-nr-subscription`,
       {
-        filterName: `${ingestionFunction.functionName}`,
-        logGroup: this.eventSenderLambda.logGroup,
-        destination: new destinations.LambdaDestination(ingestionFunction),
-        filterPattern: logs.FilterPattern.allEvents(),
+        logGroupName: this.eventSenderLambda.logGroup.logGroupName,
+        filterPattern: "",
+        destinationArn: ingestionFunction.functionArn,
       },
     );
 

@@ -3,6 +3,7 @@ import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as events from "aws-cdk-lib/aws-events";
 import { Construct } from "constructs";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as httpApigateway from "aws-cdk-lib/aws-apigatewayv2";
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 import * as path from "path";
@@ -27,6 +28,12 @@ export class TracingTestStack extends cdk.Stack {
     // shared sender lambda to that bus.
 
     // REST API Gateway with X-Ray tracing enabled
+    // Create a LogGroup for API Gateway execution/access logs
+    const restApiLogGroup = new logs.LogGroup(this, "TracingTestApiLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     const api = new apigateway.RestApi(this, "TracingTestApi", {
       restApiName: "tvnz-test-integration-rest-api-1",
       description: "API Gateway with X-Ray tracing for testing data flow",
@@ -34,7 +41,33 @@ export class TracingTestStack extends cdk.Stack {
         stageName: "dev",
         tracingEnabled: false,
         loggingLevel: apigateway.MethodLoggingLevel.INFO,
-        // dataTraceEnabled: false,
+        // dataTraceEnabled: true,
+        accessLogDestination: new apigateway.LogGroupLogDestination(
+          restApiLogGroup,
+        ),
+        accessLogFormat: apigateway.AccessLogFormat.custom(
+          JSON.stringify({
+            requestId: "$context.requestId",
+            apiId: "$context.apiId",
+            stage: "$context.stage",
+            userAgent: "$context.identity.userAgent",
+            sourceIp: "$context.identity.sourceIp",
+            requestTime: "$context.requestTime",
+            requestTimeEpoch: "$context.requestTimeEpoch",
+            httpMethod: "$context.httpMethod",
+            protocol: "$context.protocol",
+            path: "$context.path",
+            resourcePath: "$context.resourcePath",
+            status: "$context.status",
+            responseLength: "$context.responseLength",
+            domainName: "$context.domainName",
+            latency: "$context.responseLatency",
+            integrationLatency: "$context.integrationLatency",
+            integrationStatus: "$context.integrationStatus",
+            errorMessage: "$context.error.message",
+            principalId: "$context.authorizer.principalId",
+          }),
+        ),
         // metricsEnabled: true,
       },
       defaultCorsPreflightOptions: {
@@ -61,7 +94,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         requestTemplates: { "application/json": '{ "statusCode": "200" }' },
         proxy: true,
-      }
+      },
     );
 
     // Add POST method to /api/test-tracing
@@ -116,8 +149,8 @@ export class TracingTestStack extends cdk.Stack {
         httpApigateway.MappingValue.custom(
           `/${api.deploymentStage.stageName}/api/${
             httpApigateway.MappingValue.requestPathParam("proxy").value
-          }`
-        )
+          }`,
+        ),
       );
 
     const urlIntegration = new integrations.HttpUrlIntegration(
@@ -126,7 +159,7 @@ export class TracingTestStack extends cdk.Stack {
       {
         method: httpApigateway.HttpMethod.ANY,
         parameterMapping,
-      }
+      },
     );
 
     httpApi.addRoutes({
