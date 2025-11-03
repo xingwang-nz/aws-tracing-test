@@ -8,7 +8,6 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as logs from "aws-cdk-lib/aws-logs";
-import * as destinations from "aws-cdk-lib/aws-logs-destinations";
 
 export interface TvnzEventSenderStackProps extends cdk.StackProps {
   readonly eventBus: events.EventBus;
@@ -123,5 +122,48 @@ export class TvnzEventSenderStack extends cdk.Stack {
       "TRACING_SNS_TOPIC_ARN",
       tracingTopic.topicArn,
     );
+
+    ////////////////////
+    // sns logging
+    const snsLogGroup = new logs.LogGroup(this, "SnsDeliveryStatusLogGroup", {
+      logGroupName: "/aws/sns/tvnz-delivery-status",
+      retention: logs.RetentionDays.ONE_WEEK,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    const snsLoggingRole = new iam.Role(this, "SnsDeliveryLoggingRole", {
+      roleName: "tvnz-sns-delivery-logging-role",
+      assumedBy: new iam.ServicePrincipal("sns.amazonaws.com"),
+      description: "Role used by SNS to log delivery status to CloudWatch Logs",
+      inlinePolicies: {
+        SNSLogWritePolicy: new iam.PolicyDocument({
+          statements: [
+            new iam.PolicyStatement({
+              actions: [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+              ],
+              resources: [`${snsLogGroup.logGroupArn}:*`],
+            }),
+          ],
+        }),
+      },
+    });
+
+    const topicCfn = new sns.CfnTopic(this, "MyTopicWithDeliveryLogging", {
+      topicName: "tvnz-topic-with-logging",
+      deliveryStatusLogging: [
+        "lambda",
+        "sqs",
+        "application",
+        "http/s",
+        "firehose",
+      ].map((protocol) => ({
+        protocol: protocol,
+        successFeedbackRoleArn: snsLoggingRole.roleArn,
+        failureFeedbackRoleArn: snsLoggingRole.roleArn,
+      })),
+    });
   }
 }
