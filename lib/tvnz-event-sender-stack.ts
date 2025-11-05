@@ -27,7 +27,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
       ingestionFunction = lambda.Function.fromFunctionArn(
         this,
         "ImportedMockNrIngest",
-        props.mockNrIngestionLambdaArn,
+        props.mockNrIngestionLambdaArn
       );
       // Imported function is expected to already allow invocation by
       // CloudWatch Logs (no extra permission added here).
@@ -40,7 +40,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
           "..",
           "src",
           "lambda",
-          "mock-nr-ingestion-lambda.ts",
+          "mock-nr-ingestion-lambda.ts"
         ),
         memorySize: 256,
         timeout: cdk.Duration.seconds(10),
@@ -76,11 +76,11 @@ export class TvnzEventSenderStack extends cdk.Stack {
 
     this.eventSenderLambda.addEnvironment(
       "EVENT_BUS_NAME",
-      props.eventBus.eventBusName,
+      props.eventBus.eventBusName
     );
 
     this.eventSenderLambda.role?.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess"),
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess")
     );
 
     // Create a low-level CloudFormation subscription filter that targets the
@@ -94,43 +94,55 @@ export class TvnzEventSenderStack extends cdk.Stack {
         logGroupName: this.eventSenderLambda.logGroup.logGroupName,
         filterPattern: "",
         destinationArn: ingestionFunction.functionArn,
-      },
+      }
     );
-
-    // Create an SNS topic and a subscription lambda that logs X-Ray info
-    const tracingTopic = new sns.Topic(this, "TvnzTestTracingTopic", {
-      topicName: "tvnz-test-tracing-topic",
-    });
 
     const snsSubLambda = createTracedLambda(this, {
       id: "SnsSubscriptionLambda",
       functionName: "tvnz-sns-subscription-lambda",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/sns-subscription-lambda.ts",
+        "../src/lambda/sns-subscription-lambda.ts"
       ),
     });
 
-    // Subscribe the lambda to the topic
-    tracingTopic.addSubscription(
-      new subscriptions.LambdaSubscription(snsSubLambda),
-    );
+    // // Create an SNS topic and a subscription lambda that logs X-Ray info
+    // const tracingTopic = new sns.Topic(this, "TvnzTestTracingTopic", {
+    //   topicName: "tvnz-test-tracing-topic",
+    // });
 
-    // Grant publish permission to the event sender lambda and set env var
-    tracingTopic.grantPublish(this.eventSenderLambda);
-    this.eventSenderLambda.addEnvironment(
-      "TRACING_SNS_TOPIC_ARN",
-      tracingTopic.topicArn,
-    );
+    // Subscribe the lambda to the topic
+    // tracingTopic.addSubscription(
+    //   new subscriptions.LambdaSubscription(snsSubLambda)
+    // );
+
+    // // Grant publish permission to the event sender lambda and set env var
+    // tracingTopic.grantPublish(this.eventSenderLambda);
+    // this.eventSenderLambda.addEnvironment(
+    //   "TRACING_SNS_TOPIC_ARN",
+    //   tracingTopic.topicArn
+    // );
 
     ////////////////////
     // sns logging
-    const snsLogGroup = new logs.LogGroup(this, "SnsDeliveryStatusLogGroup", {
-      logGroupName: "/aws/sns/tvnz-delivery-status",
-      retention: logs.RetentionDays.ONE_WEEK,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    // const snsLogGroup = new logs.LogGroup(this, "SnsDeliveryStatusLogGroup", {
+    //   logGroupName: "/aws/sns/tvnz-delivery-status",
+    //   retention: logs.RetentionDays.ONE_WEEK,
+    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
+    // });
+
+    const topicName = "tvnz-topic-with-logging";
+
+    const deliveryStatusLogGroupName = `sns/${this.region}/${this.account}/${topicName}`;
+
+    // 1) Create L2 Topic (nice API)
+    const topic = new sns.Topic(this, "MyTopicWithDeliveryLogging", {
+      topicName,
+      // fifo: false, // or true if you need fifo
+      // other TopicProps...
     });
 
+    // 2) Create role SNS will assume to write delivery status logs
     const snsLoggingRole = new iam.Role(this, "SnsDeliveryLoggingRole", {
       roleName: "tvnz-sns-delivery-logging-role",
       assumedBy: new iam.ServicePrincipal("sns.amazonaws.com"),
@@ -144,26 +156,82 @@ export class TvnzEventSenderStack extends cdk.Stack {
                 "logs:CreateLogStream",
                 "logs:PutLogEvents",
               ],
-              resources: [`${snsLogGroup.logGroupArn}:*`],
+              resources: [
+                `arn:aws:logs:${this.region}:${this.account}:log-group:${deliveryStatusLogGroupName}:*`,
+              ],
             }),
           ],
         }),
       },
     });
 
-    const topicCfn = new sns.CfnTopic(this, "MyTopicWithDeliveryLogging", {
-      topicName: "tvnz-topic-with-logging",
-      deliveryStatusLogging: [
-        "lambda",
-        "sqs",
-        "application",
-        "http/s",
-        "firehose",
-      ].map((protocol) => ({
-        protocol: protocol,
-        successFeedbackRoleArn: snsLoggingRole.roleArn,
-        failureFeedbackRoleArn: snsLoggingRole.roleArn,
-      })),
-    });
+    // 3) Add DeliveryStatusLogging to the underlying L1 CfnTopic.
+    // Use the CFN property names (PascalCase) for addPropertyOverride.
+    const cfnTopic = topic.node.defaultChild as sns.CfnTopic;
+    cfnTopic.addPropertyOverride(
+      "DeliveryStatusLogging",
+      ["lambda", "sqs", "application", "http/s", "firehose"].map(
+        (protocol) => ({
+          protocol,
+          successFeedbackRoleArn: snsLoggingRole.roleArn,
+          failureFeedbackRoleArn: snsLoggingRole.roleArn,
+          successFeedbackSampleRate: "100",
+        })
+      )
+    );
+
+    topic.addSubscription(new subscriptions.LambdaSubscription(snsSubLambda));
+
+    // const topicCfn = new sns.CfnTopic(this, "MyTopicWithDeliveryLogging", {
+    //   topicName,
+    //   deliveryStatusLogging: [
+    //     "lambda",
+    //     "sqs",
+    //     "application",
+    //     "http/s",
+    //     "firehose",
+    //   ].map((protocol) => ({
+    //     protocol,
+    //     successFeedbackRoleArn: snsLoggingRole.roleArn,
+    //     failureFeedbackRoleArn: snsLoggingRole.roleArn,
+    //     successFeedbackSampleRate: "100",
+    //   })),
+    // });
+
+    new logs.CfnSubscriptionFilter(
+      this,
+      `${topicName}-log-cfn-nr-subscription`,
+      {
+        logGroupName: deliveryStatusLogGroupName,
+        filterPattern: "",
+        destinationArn: ingestionFunction.functionArn,
+      }
+    );
+
+    // // Subscribe snsSubLambda to topicCfn
+    // new sns.CfnSubscription(this, "SnsSubLambdaToTopicCfn", {
+    //   topicArn: topicCfn.ref,
+    //   protocol: "lambda",
+    //   endpoint: snsSubLambda.functionArn,
+    // });
+
+    // // Grant SNS permission to invoke snsSubLambda
+    // snsSubLambda.addPermission("AllowSnsInvoke", {
+    //   principal: new iam.ServicePrincipal("sns.amazonaws.com"),
+    //   action: "lambda:InvokeFunction",
+    //   sourceArn: topicCfn.ref,
+    // });
+
+    // Grant publish permission to the event sender lambda
+    this.eventSenderLambda.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["sns:Publish"],
+        resources: [topic.topicArn],
+      })
+    );
+    this.eventSenderLambda.addEnvironment(
+      "TRACING_SNS_TOPIC_ARN",
+      topic.topicArn
+    );
   }
 }
