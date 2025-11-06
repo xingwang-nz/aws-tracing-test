@@ -27,7 +27,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
       ingestionFunction = lambda.Function.fromFunctionArn(
         this,
         "ImportedMockNrIngest",
-        props.mockNrIngestionLambdaArn
+        props.mockNrIngestionLambdaArn,
       );
       // Imported function is expected to already allow invocation by
       // CloudWatch Logs (no extra permission added here).
@@ -40,7 +40,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
           "..",
           "src",
           "lambda",
-          "mock-nr-ingestion-lambda.ts"
+          "mock-nr-ingestion-lambda.ts",
         ),
         memorySize: 256,
         timeout: cdk.Duration.seconds(10),
@@ -76,11 +76,11 @@ export class TvnzEventSenderStack extends cdk.Stack {
 
     this.eventSenderLambda.addEnvironment(
       "EVENT_BUS_NAME",
-      props.eventBus.eventBusName
+      props.eventBus.eventBusName,
     );
 
     this.eventSenderLambda.role?.addManagedPolicy(
-      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess")
+      iam.ManagedPolicy.fromAwsManagedPolicyName("AWSXRayDaemonWriteAccess"),
     );
 
     // Create a low-level CloudFormation subscription filter that targets the
@@ -94,7 +94,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
         logGroupName: this.eventSenderLambda.logGroup.logGroupName,
         filterPattern: "",
         destinationArn: ingestionFunction.functionArn,
-      }
+      },
     );
 
     const snsSubLambda = createTracedLambda(this, {
@@ -102,47 +102,34 @@ export class TvnzEventSenderStack extends cdk.Stack {
       functionName: "tvnz-sns-subscription-lambda",
       entryPath: path.join(
         __dirname,
-        "../src/lambda/sns-subscription-lambda.ts"
+        "../src/lambda/sns-subscription-lambda.ts",
       ),
     });
 
-    // // Create an SNS topic and a subscription lambda that logs X-Ray info
-    // const tracingTopic = new sns.Topic(this, "TvnzTestTracingTopic", {
-    //   topicName: "tvnz-test-tracing-topic",
-    // });
-
-    // Subscribe the lambda to the topic
-    // tracingTopic.addSubscription(
-    //   new subscriptions.LambdaSubscription(snsSubLambda)
-    // );
-
-    // // Grant publish permission to the event sender lambda and set env var
-    // tracingTopic.grantPublish(this.eventSenderLambda);
-    // this.eventSenderLambda.addEnvironment(
-    //   "TRACING_SNS_TOPIC_ARN",
-    //   tracingTopic.topicArn
-    // );
-
-    ////////////////////
-    // sns logging
-    // const snsLogGroup = new logs.LogGroup(this, "SnsDeliveryStatusLogGroup", {
-    //   logGroupName: "/aws/sns/tvnz-delivery-status",
-    //   retention: logs.RetentionDays.ONE_WEEK,
-    //   removalPolicy: cdk.RemovalPolicy.DESTROY,
-    // });
-
     const topicName = "tvnz-topic-with-logging";
 
+    // SNS writes delivery-status logs into a CloudWatch Logs log group it owns.
+    // To avoid a CFN race where we create a subscription filter against a
+    // log group that doesn't exist yet, pre-create the log group with the
+    // name SNS will use. The observed format is `/aws/sns/<topicName>`.
     const deliveryStatusLogGroupName = `sns/${this.region}/${this.account}/${topicName}`;
 
-    // 1) Create L2 Topic (nice API)
+    const snsDeliveryLogGroup = new logs.LogGroup(
+      this,
+      "SnsDeliveryStatusLogGroup",
+      {
+        logGroupName: deliveryStatusLogGroupName,
+        removalPolicy: cdk.RemovalPolicy.DESTROY,
+      },
+    );
+
+    // 1) Create L2 Topic
     const topic = new sns.Topic(this, "MyTopicWithDeliveryLogging", {
       topicName,
-      // fifo: false, // or true if you need fifo
-      // other TopicProps...
     });
 
-    // 2) Create role SNS will assume to write delivery status logs
+    // 2) Create role SNS will assume to write delivery status logs. Use the
+    // log group ARN we just created so the role policy is scoped correctly.
     const snsLoggingRole = new iam.Role(this, "SnsDeliveryLoggingRole", {
       roleName: "tvnz-sns-delivery-logging-role",
       assumedBy: new iam.ServicePrincipal("sns.amazonaws.com"),
@@ -156,9 +143,7 @@ export class TvnzEventSenderStack extends cdk.Stack {
                 "logs:CreateLogStream",
                 "logs:PutLogEvents",
               ],
-              resources: [
-                `arn:aws:logs:${this.region}:${this.account}:log-group:${deliveryStatusLogGroupName}:*`,
-              ],
+              resources: [`${snsDeliveryLogGroup.logGroupArn}`],
             }),
           ],
         }),
@@ -166,37 +151,21 @@ export class TvnzEventSenderStack extends cdk.Stack {
     });
 
     // 3) Add DeliveryStatusLogging to the underlying L1 CfnTopic.
-    // Use the CFN property names (PascalCase) for addPropertyOverride.
+    // Use PascalCase CFN property names and lowercase protocol values.
     const cfnTopic = topic.node.defaultChild as sns.CfnTopic;
     cfnTopic.addPropertyOverride(
       "DeliveryStatusLogging",
       ["lambda", "sqs", "application", "http/s", "firehose"].map(
         (protocol) => ({
-          protocol,
-          successFeedbackRoleArn: snsLoggingRole.roleArn,
-          failureFeedbackRoleArn: snsLoggingRole.roleArn,
-          successFeedbackSampleRate: "100",
-        })
-      )
+          Protocol: protocol,
+          SuccessFeedbackRoleArn: snsLoggingRole.roleArn,
+          FailureFeedbackRoleArn: snsLoggingRole.roleArn,
+          SuccessFeedbackSampleRate: "100",
+        }),
+      ),
     );
 
     topic.addSubscription(new subscriptions.LambdaSubscription(snsSubLambda));
-
-    // const topicCfn = new sns.CfnTopic(this, "MyTopicWithDeliveryLogging", {
-    //   topicName,
-    //   deliveryStatusLogging: [
-    //     "lambda",
-    //     "sqs",
-    //     "application",
-    //     "http/s",
-    //     "firehose",
-    //   ].map((protocol) => ({
-    //     protocol,
-    //     successFeedbackRoleArn: snsLoggingRole.roleArn,
-    //     failureFeedbackRoleArn: snsLoggingRole.roleArn,
-    //     successFeedbackSampleRate: "100",
-    //   })),
-    // });
 
     new logs.CfnSubscriptionFilter(
       this,
@@ -205,33 +174,19 @@ export class TvnzEventSenderStack extends cdk.Stack {
         logGroupName: deliveryStatusLogGroupName,
         filterPattern: "",
         destinationArn: ingestionFunction.functionArn,
-      }
-    );
-
-    // // Subscribe snsSubLambda to topicCfn
-    // new sns.CfnSubscription(this, "SnsSubLambdaToTopicCfn", {
-    //   topicArn: topicCfn.ref,
-    //   protocol: "lambda",
-    //   endpoint: snsSubLambda.functionArn,
-    // });
-
-    // // Grant SNS permission to invoke snsSubLambda
-    // snsSubLambda.addPermission("AllowSnsInvoke", {
-    //   principal: new iam.ServicePrincipal("sns.amazonaws.com"),
-    //   action: "lambda:InvokeFunction",
-    //   sourceArn: topicCfn.ref,
-    // });
+      },
+    ).node.addDependency(snsDeliveryLogGroup);
 
     // Grant publish permission to the event sender lambda
     this.eventSenderLambda.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["sns:Publish"],
         resources: [topic.topicArn],
-      })
+      }),
     );
     this.eventSenderLambda.addEnvironment(
       "TRACING_SNS_TOPIC_ARN",
-      topic.topicArn
+      topic.topicArn,
     );
   }
 }
