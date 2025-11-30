@@ -8,6 +8,8 @@ import * as iam from "aws-cdk-lib/aws-iam";
 import * as sns from "aws-cdk-lib/aws-sns";
 import * as subscriptions from "aws-cdk-lib/aws-sns-subscriptions";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as sqs from "aws-cdk-lib/aws-sqs";
+import { SqsEventSource } from "aws-cdk-lib/aws-lambda-event-sources";
 
 export interface TvnzEventSenderStackProps extends cdk.StackProps {
   readonly eventBus: events.EventBus;
@@ -188,5 +190,47 @@ export class TvnzEventSenderStack extends cdk.Stack {
       "TRACING_SNS_TOPIC_ARN",
       topic.topicArn,
     );
+
+    // sqs and lambda consumer for end-to-end tracing test can be added here
+    // Create SQS queue for tracing tests
+    const tracingQueue = new sqs.Queue(this, "TracingQueue", {
+      queueName: "tvnz-tracing-queue",
+      visibilityTimeout: cdk.Duration.seconds(60),
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // Create the Lambda consumer that uses traced-sqs-handler (src/lambda/sqs-consumer.ts)
+    const sqsConsumer = createTracedLambda(this, {
+      id: "SqsTracingConsumer",
+      functionName: "tvnz-sqs-tracing-consumer",
+      entryPath: path.join(__dirname, "../src/lambda/sqs-consumer.ts"),
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Grant the Lambda permission to consume messages from the queue
+    tracingQueue.grantConsumeMessages(sqsConsumer);
+
+    // Add SQS event source mapping so Lambda will be triggered by the queue
+    sqsConsumer.addEventSource(
+      new SqsEventSource(tracingQueue, {
+        batchSize: 5,
+        maxBatchingWindow: cdk.Duration.seconds(5),
+      }),
+    );
+
+    // Export queue details for easy testing
+    new cdk.CfnOutput(this, "TracingQueueName", {
+      value: tracingQueue.queueName,
+      exportName: "tvnz-tracing-queue-name",
+    });
+    new cdk.CfnOutput(this, "TracingQueueArn", {
+      value: tracingQueue.queueArn,
+      exportName: "tvnz-tracing-queue-arn",
+    });
+    new cdk.CfnOutput(this, "SqsConsumerFunctionName", {
+      value: sqsConsumer.functionName,
+      exportName: "tvnz-sqs-tracing-consumer-name",
+    });
   }
 }

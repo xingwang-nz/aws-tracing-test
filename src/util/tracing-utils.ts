@@ -35,7 +35,7 @@ export class TraceId {
     );
   }
 
-  private static generate(): string {
+  public static generate(): string {
     console.log("[TraceId] Generating new trace ID");
     const epoch = Math.floor(Date.now() / 1000)
       .toString(16)
@@ -61,7 +61,7 @@ export class TraceId {
     const explicitTraceId = this.getHeader(headers, this.TRACE_ID_HEADER);
     if (explicitTraceId) {
       console.log(
-        `[TraceId] Extracted trace ID from header: ${explicitTraceId}`
+        `[TraceId] Extracted trace ID from header: ${explicitTraceId}`,
       );
       return { traceId: explicitTraceId, spanId, xrayEnv };
     }
@@ -71,14 +71,14 @@ export class TraceId {
       const awsTraceFromEnv = this.extractRootTraceId(xrayEnv);
       if (awsTraceFromEnv) {
         console.log(
-          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`
+          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`,
         );
         return { traceId: awsTraceFromEnv, spanId, xrayEnv };
       }
       const awsTraceFromSegment = this.getRootTraceIdFromSegment(segment);
       if (awsTraceFromSegment) {
         console.log(
-          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`
+          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`,
         );
         return { traceId: awsTraceFromSegment, spanId, xrayEnv };
       }
@@ -112,7 +112,7 @@ export class TraceId {
     // explicit traceId in event detail
     if (tracedEvent.detail?.traceId) {
       console.log(
-        `[TraceId] Extracted trace ID from traced event detail: ${tracedEvent.detail.traceId}`
+        `[TraceId] Extracted trace ID from traced event detail: ${tracedEvent.detail.traceId}`,
       );
       return {
         traceId: tracedEvent.detail.traceId,
@@ -127,7 +127,7 @@ export class TraceId {
       const awsTraceFromEnv = this.getRootTraceIdFromEnvironment();
       if (awsTraceFromEnv) {
         console.log(
-          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`
+          `[TraceId] Extracted trace ID from X-Ray environment: ${awsTraceFromEnv}`,
         );
         return { traceId: awsTraceFromEnv, spanId, xrayEnv };
       }
@@ -136,7 +136,7 @@ export class TraceId {
       const awsTraceFromSegment = this.getRootTraceIdFromSegment(segment);
       if (awsTraceFromSegment) {
         console.log(
-          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`
+          `[TraceId] Extracted trace ID from X-Ray segment: ${awsTraceFromSegment}`,
         );
         return { traceId: awsTraceFromSegment, spanId, xrayEnv };
       }
@@ -150,7 +150,7 @@ export class TraceId {
    */
   private static getSpanIdFromXRay(
     xrayEnv?: string,
-    segment?: any
+    segment?: any,
   ): string | undefined {
     if (xrayEnv) {
       // X-Ray env format: Root=...;Parent=...;Sampled=...
@@ -177,7 +177,7 @@ export class TraceId {
 
   private static getHeader(
     headers: Record<string, string | undefined>,
-    headerName: string
+    headerName: string,
   ): string | undefined {
     const target = headerName.toLowerCase();
     // case in
@@ -190,7 +190,7 @@ export class TraceId {
   }
 
   private static extractRootTraceId(
-    traceValue?: string | null
+    traceValue?: string | null,
   ): string | undefined {
     if (!traceValue) {
       return undefined;
@@ -234,7 +234,7 @@ export class TraceId {
   }
 
   private static getRootTraceIdFromSegment(
-    segment?: XRaySegmentPartial | null
+    segment?: XRaySegmentPartial | null,
   ): string | undefined {
     return this.extractRootTraceId(segment?.trace_id ?? null);
   }
@@ -248,7 +248,7 @@ export class TraceId {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`
+        `[TraceId] aws-xray-sdk-core segment access failed: ${message}`,
       );
       return undefined;
     }
@@ -279,7 +279,7 @@ export class TracingContext {
 
   static async withTraceContext<T>(
     ctx: TraceContext,
-    fn: () => Promise<T>
+    fn: () => Promise<T>,
   ): Promise<T> {
     const current = this.getStore() || {};
     const next = { ...current, ...ctx };
